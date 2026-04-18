@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KataKita - Master Data Pejabat</title>
+    <script>
+        (function() {
+            try {
+                let currentFetch = window.fetch;
+                Object.defineProperty(window, 'fetch', {
+                    get: function() { return currentFetch; },
+                    set: function(v) { currentFetch = v; },
+                    configurable: true,
+                    enumerable: true
+                });
+                window.global = window;
+            } catch (e) {
+                console.warn("Environmental fetch patch applied via fallback.");
+            }
+        })();
+    </script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            text: '#f1f5f9'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <script>
+        // Init theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply font-poppins bg-slate-50 text-slate-900 transition-colors duration-300;
+            }
+            .dark body {
+                @apply bg-dark-bg text-dark-text;
+            }
+        }
+        
+        @layer components {
+            .card {
+                @apply bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-300 dark:border-slate-600 p-5 transition-all;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center justify-center gap-2;
+            }
+            .btn-primary {
+                @apply bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+    <!-- Navbar -->
+    <nav class="sticky top-0 z-50 w-full bg-white/80 dark:bg-dark-card/80 backdrop-blur-md border-b border-slate-300 dark:border-slate-600">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-2">
+                    <button id="mobile-sidebar-toggle" class="hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        <i class="fas fa-bars-staggered text-xl"></i>
+                    </button>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 overflow-hidden flex items-center justify-center">
+                            <img src="/src/logo.png" alt="Logo" class="w-full h-full object-contain">
+                        </div>
+                        <span class="text-2xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">KataKita</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button id="theme-toggle" class="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                        <i class="fas fa-moon dark:hidden"></i>
+                        <i class="fas fa-sun hidden dark:block"></i>
+                    </button>
+                    <button onclick="window.logoutUser()" class="btn text-sm border-0 bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors px-4">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span class="hidden sm:inline">Logout</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex h-[calc(100vh-4rem)] bg-slate-50 dark:bg-dark-bg w-full relative overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="admin-sidebar" class="absolute inset-y-0 left-0 z-40 w-64 transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col bg-white dark:bg-dark-card border-r border-slate-200 dark:border-slate-700 h-full">
+            <div class="md:hidden flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+                <span class="font-bold text-slate-800 dark:text-white">Admin Menu</span>
+                <button onclick="toggleSidebar()" class="p-2 text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <nav class="flex-1 px-4 py-6 md:py-8 space-y-2 overflow-y-auto">
+                <a href="/admin/index.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-home w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="/admin/berita.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-newspaper w-5 text-center"></i>
+                    <span>Kelola Berita</span>
+                </a>
+                <a href="/admin/unit.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-building w-5 text-center"></i>
+                    <span>Unit Kerja</span>
+                </a>
+                <a href="/admin/pejabat.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-blue-600 bg-blue-50 dark:bg-blue-900/20 font-bold transition-all">
+                    <i class="fas fa-user-tie w-5 text-center"></i>
+                    <span>Nama Pejabat</span>
+                </a>
+
+                <div class="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+                    <a href="/" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 font-bold transition-all">
+                        <i class="fas fa-globe w-5 text-center"></i>
+                        <span>Lihat Website</span>
+                    </a>
+                </div>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-700">
+                <button onclick="window.logoutUser()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-medium transition-all">
+                    <i class="fas fa-sign-out-alt w-5 text-center"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm hidden md:hidden transition-opacity duration-300"></div>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 sm:p-8 pb-28 md:pb-8 overflow-y-auto w-full">
+            <div id="section-pejabat" class="space-y-6">
+                <div class="card space-y-6">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white">
+                            <i class="fas fa-user-tie text-amber-500 text-2xl"></i>
+                            Master Data Pejabat
+                        </h3>
+                        <button onclick="openOfficialModal()" class="btn btn-primary bg-amber-500 hover:bg-amber-600 shadow-amber-500/30 text-sm w-full sm:w-auto">
+                            <i class="fas fa-plus"></i> Tambah Pejabat
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" id="admin-official-list">
+                        <!-- Data loaded via JS -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Official Modal -->
+    <div id="official-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9990] hidden flex-col items-center justify-center p-4 transition-all opacity-0">
+        <div class="bg-white dark:bg-dark-card w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700 scale-95 transition-all" id="official-modal-content">
+            <div class="bg-gradient-to-r from-amber-500 to-orange-500 p-6 text-white flex justify-between items-center">
+                <h4 class="text-xl font-bold flex items-center gap-2">
+                    <i class="fas fa-user-tie"></i>
+                    <span id="official-modal-title">Tambah Pejabat</span>
+                </h4>
+                <button onclick="closeOfficialModal()" class="p-2 hover:bg-white/20 rounded-full transition-colors"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-8 space-y-5">
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-slate-700 dark:text-slate-300">Nama Pejabat <span class="text-rose-500">*</span></label>
+                    <input type="text" id="modal-off-name" placeholder="Contoh: H. Budi Rustandi" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all dark:text-white">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-slate-700 dark:text-slate-300">Jabatan <span class="text-rose-500">*</span></label>
+                    <input type="text" id="modal-off-role" placeholder="Contoh: Walikota Serang" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none transition-all dark:text-white">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-bold text-slate-700 dark:text-slate-300">Jenis Kelamin <span class="text-rose-500">*</span></label>
+                    <div class="flex gap-4">
+                        <label class="flex-1 flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                            <input type="radio" name="jk" value="Laki-laki" checked class="w-4 h-4 text-amber-500 focus:ring-amber-500">
+                            <span class="text-slate-700 dark:text-slate-300 font-medium">Laki-laki</span>
+                        </label>
+                        <label class="flex-1 flex items-center gap-3 p-3 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                            <input type="radio" name="jk" value="Perempuan" class="w-4 h-4 text-amber-500 focus:ring-amber-500">
+                            <span class="text-slate-700 dark:text-slate-300 font-medium">Perempuan</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="flex gap-3 pt-2">
+                    <button onclick="closeOfficialModal()" class="flex-1 btn bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">Batal</button>
+                    <button onclick="saveOfficial()" class="flex-1 btn bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/30 font-bold">Simpan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <div id="mobile-bottom-nav" class="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] w-[88%] max-w-[20rem] rounded-full bg-white dark:bg-dark-card shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] border border-slate-200 dark:border-slate-700 px-5 h-[3.25rem] flex justify-between items-center transition-all duration-300 ease-in-out translate-y-0">
+        <!-- Dashboard -->
+        <a href="/admin/index.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-home text-[1.35rem]"></i>
+        </a>
+        <!-- Website -->
+        <a href="/" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-globe text-[1.35rem]"></i>
+        </a>
+        
+        <!-- Central Plus -->
+        <a href="/admin/berita.html" class="relative -top-[1.35rem] w-[3.75rem] h-[3.75rem] rounded-full bg-blue-600 shadow-[0_4px_15px_rgba(37,99,235,0.4)] text-white flex items-center justify-center border-[7px] border-slate-50 dark:border-dark-bg hover:bg-blue-700 hover:scale-105 transition-transform overflow-hidden mx-0.5 flex-shrink-0">
+            <i class="fas fa-newspaper absolute inset-0 w-full h-full text-[2.2rem] opacity-20 flex items-center justify-center pointer-events-none mt-1"></i>
+            <i class="fas fa-plus relative z-10 text-lg font-bold"></i>
+        </a>
+
+        <!-- Unit Kerja -->
+        <a href="/admin/unit.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-building text-[1.35rem]"></i>
+        </a>
+        <!-- Pejabat -->
+        <a href="/admin/pejabat.html" class="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
+            <i class="fas fa-user-tie text-[1.35rem]"></i>
+        </a>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const bottomNav = document.getElementById('mobile-bottom-nav');
+            const scrollContainer = document.querySelector('main.overflow-y-auto');
+            if (bottomNav && scrollContainer) {
+                let lastScrollY = scrollContainer.scrollTop;
+                scrollContainer.addEventListener('scroll', () => {
+                    const currentScrollY = scrollContainer.scrollTop;
+                    if (currentScrollY > lastScrollY && currentScrollY > 10) {
+                        bottomNav.classList.add('translate-y-24', 'opacity-0');
+                    } else {
+                        bottomNav.classList.remove('translate-y-24', 'opacity-0');
+                    }
+                    lastScrollY = currentScrollY;
+                }, { passive: true });
+            }
+        });
+    </script>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9990] hidden flex-col items-center justify-center transition-all opacity-0 px-4">
+        <div class="bg-white dark:bg-dark-card p-8 rounded-3xl shadow-2xl w-full max-w-sm flex flex-col gap-8 border border-slate-200 dark:border-slate-800 translate-y-4 transition-all" id="confirm-modal-content">
+            <div class="flex flex-col items-center text-center gap-4">
+                <div class="w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center text-3xl mb-2">
+                    <i class="fas fa-trash-alt animate-bounce"></i>
+                </div>
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 dark:text-white" id="confirm-modal-title">Hapus Data?</h3>
+                    <p class="text-slate-500 dark:text-slate-400 mt-2 leading-relaxed" id="confirm-modal-message">Apakah Anda yakin ingin menghapus data ini? Tindakan ini tidak dapat dibatalkan.</p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button id="confirm-cancel" class="flex-1 btn bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 py-4 text-lg">Batal</button>
+                <button id="confirm-ok" class="flex-1 btn bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 py-4 text-lg font-bold">Ya, Hapus</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="global-loading" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999] hidden flex-col items-center justify-center transition-all opacity-0 px-4">
+        <div class="bg-white/90 dark:bg-dark-card/90 p-10 rounded-3xl shadow-2xl flex flex-col items-center gap-6 border border-slate-200 dark:border-slate-800 max-w-xs w-full">
+            <div class="animate-spin rounded-full h-16 w-16 border-[5px] border-slate-200 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500"></div>
+            <p id="global-loading-text" class="text-slate-700 dark:text-slate-300 font-bold text-xl text-center">Sedang Memproses...</p>
+        </div>
+    </div>
+
+    <script type="module" src="/src/auth.ts"></script>
+    <script>
+        // Global Loading Logic
+        window.showLoading = function(text = "Memuat...") {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el && txt) {
+                txt.innerText = text;
+                el.classList.remove('hidden');
+                el.classList.add('flex');
+                setTimeout(() => el.classList.add('opacity-100'), 10);
+            }
+        };
+
+        window.hideLoading = function(success = false) {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el) {
+                if (success && txt) {
+                    txt.innerText = "Selesai!";
+                    const icon = el.querySelector('.animate-spin');
+                    if (icon) {
+                        icon.classList.remove('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                        icon.classList.add('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                        icon.innerHTML = '<i class="fas fa-check text-white text-xl"></i>';
+                    }
+                    setTimeout(() => {
+                        el.classList.remove('opacity-100');
+                        setTimeout(() => {
+                            el.classList.add('hidden');
+                            el.classList.remove('flex', 'flex-col');
+                            // Reset for next time
+                            if (icon) {
+                                icon.classList.add('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                                icon.classList.remove('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                                icon.innerHTML = '';
+                            }
+                        }, 300);
+                    }, 800);
+                } else {
+                    el.classList.remove('opacity-100');
+                    setTimeout(() => {
+                        el.classList.add('hidden');
+                        el.classList.remove('flex');
+                    }, 300);
+                }
+            }
+        };
+
+        window.customConfirm = function(title, message, options = {}) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('confirm-modal');
+                const content = document.getElementById('confirm-modal-content');
+                const titleEl = document.getElementById('confirm-modal-title');
+                const msgEl = document.getElementById('confirm-modal-message');
+                const okBtn = document.getElementById('confirm-ok');
+                const cancelBtn = document.getElementById('confirm-cancel');
+                const iconContainer = modal.querySelector('.text-3xl');
+                const icon = iconContainer.querySelector('i');
+
+                titleEl.innerText = title;
+                msgEl.innerText = message;
+                
+                // Theme defaults
+                const theme = options.type === 'info' ? {
+                    icon: 'fa-save',
+                    iconBg: 'bg-blue-100 dark:bg-blue-900/30',
+                    iconText: 'text-blue-600 dark:text-blue-400',
+                    btnBg: 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30',
+                    btnText: 'Simpan',
+                    bounce: false
+                } : options.type === 'warn' ? {
+                    icon: 'fa-sign-out-alt',
+                    iconBg: 'bg-amber-100 dark:bg-amber-900/30',
+                    iconText: 'text-amber-600 dark:text-amber-400',
+                    btnBg: 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/30',
+                    btnText: 'Keluar',
+                    bounce: false
+                } : {
+                    icon: 'fa-trash-alt',
+                    iconBg: 'bg-rose-100 dark:bg-rose-900/30',
+                    iconText: 'text-rose-600 dark:text-rose-400',
+                    btnBg: 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30',
+                    btnText: 'Ya, Hapus',
+                    bounce: true
+                };
+
+                icon.className = `fas ${theme.icon} ${theme.bounce ? 'animate-bounce' : ''}`;
+                iconContainer.className = `w-20 h-20 ${theme.iconBg} ${theme.iconText} rounded-full flex items-center justify-center text-3xl mb-2`;
+                okBtn.className = `flex-1 btn ${theme.btnBg} text-white py-4 text-lg font-bold`;
+                okBtn.innerText = theme.btnText;
+
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    modal.classList.add('opacity-100');
+                    content.classList.remove('translate-y-4');
+                }, 10);
+
+                const cleanup = (result) => {
+                    modal.classList.remove('opacity-100');
+                    content.classList.add('translate-y-4');
+                    setTimeout(() => {
+                        modal.classList.add('hidden');
+                        modal.classList.remove('flex');
+                    }, 300);
+                    resolve(result);
+                };
+
+                cancelBtn.onclick = () => cleanup(false);
+                okBtn.onclick = () => cleanup(true);
+            });
+        };
+
+        let allOfficialData = [];
+        let activeOfficialKey = null;
+
+        /** Utility */
+        function getNextId(dataArray) {
+            if (!dataArray || dataArray.length === 0) return 1;
+            const ids = dataArray.map(item => parseInt((item.key || '').replace(/[^0-9]/g, '')) || 0);
+            return Math.max(...ids) + 1;
+        }
+
+        async function fetchData() {
+            if (!window.fetchFirebaseData) return;
+            try {
+                const res = await window.fetchFirebaseData('pejabat');
+                allOfficialData = res ? Object.keys(res).map(k => {
+                    const val = res[k];
+                    return (typeof val === 'string') ? { key: k, nama: val } : { key: k, ...val };
+                }) : [];
+                renderList();
+            } catch (err) { console.error(err); }
+        }
+
+        function renderList() {
+            const list = document.getElementById('admin-official-list');
+            if (allOfficialData.length === 0) {
+                list.innerHTML = '<div class="col-span-full py-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-200">Belum ada pejabat.</div>';
+                return;
+            }
+            list.innerHTML = allOfficialData.map(off => `
+                <div class="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center group">
+                    <div class="flex flex-col">
+                        <span class="font-bold text-slate-700 dark:text-white">${off.nama || off.name || 'Nama'}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-slate-500">${off.jabatan || off.role || '-'}</span>
+                            <span class="text-[10px] px-1.5 py-0.5 rounded-full ${off.jk === 'Perempuan' || off.jenisKelamin === 'Perempuan' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'} font-medium">${off.jk || off.jenisKelamin || '-'}</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-1">
+                        <button onclick="openOfficialModal('${off.key}')" class="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><i class="fas fa-edit"></i></button>
+                        <button onclick="deleteOfficial('${off.key}')" class="p-2 text-rose-500 hover:bg-rose-50 rounded-lg"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.openOfficialModal = (key = null) => {
+            activeOfficialKey = key;
+            const modal = document.getElementById('official-modal');
+            const title = document.getElementById('official-modal-title');
+            const nameInput = document.getElementById('modal-off-name');
+            const roleInput = document.getElementById('modal-off-role');
+            
+            if (key) {
+                const data = allOfficialData.find(o => o.key === key);
+                title.innerText = "Edit Pejabat";
+                nameInput.value = data.nama || data.name || '';
+                roleInput.value = data.jabatan || data.role || '';
+                const jkVal = data.jk || data.jenisKelamin || 'Laki-laki';
+                document.querySelector(`input[name="jk"][value="${jkVal}"]`).checked = true;
+            } else {
+                title.innerText = "Tambah Pejabat";
+                nameInput.value = '';
+                roleInput.value = '';
+                document.querySelector('input[name="jk"][value="Laki-laki"]').checked = true;
+            }
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                document.getElementById('official-modal-content').classList.remove('scale-95');
+            }, 10);
+        };
+
+        window.closeOfficialModal = () => {
+            const modal = document.getElementById('official-modal');
+            modal.classList.remove('opacity-100');
+            document.getElementById('official-modal-content').classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        };
+
+        window.saveOfficial = async () => {
+            const name = document.getElementById('modal-off-name').value.trim();
+            const role = document.getElementById('modal-off-role').value.trim();
+            const jk = document.querySelector('input[name="jk"]:checked').value;
+            if (!name) return;
+            
+            const action = activeOfficialKey ? "memperbarui" : "menambahkan";
+            const ok = await window.customConfirm("Konfirmasi Simpan", `Apakah Anda yakin ingin ${action} data pejabat ini?`, { type: 'info' });
+            if (!ok) return;
+
+            window.showLoading("Menyimpan...");
+            try {
+                const key = activeOfficialKey || getNextId(allOfficialData).toString();
+                const data = {};
+                data[key] = { nama: name, jabatan: role, jk: jk };
+                await window.updateFirebaseData('pejabat', data);
+                closeOfficialModal();
+                await fetchData();
+                window.hideLoading(true);
+            } catch (err) { alert(err.message); window.hideLoading(); }
+        };
+
+        window.deleteOfficial = async (key) => {
+            const ok = await window.customConfirm("Hapus Pejabat", "Hapus data pejabat ini?");
+            if (!ok) return;
+            window.showLoading("Menghapus...");
+            try {
+                await window.deleteFirebaseData('pejabat', key);
+                await fetchData();
+                window.hideLoading(true);
+            } catch (err) { alert(err.message); window.hideLoading(); }
+        };
+
+        window.toggleSidebar = () => {
+            document.getElementById('admin-sidebar').classList.toggle('-translate-x-full');
+            document.getElementById('sidebar-overlay').classList.toggle('hidden');
+        };
+        document.getElementById('mobile-sidebar-toggle').addEventListener('click', toggleSidebar);
+        document.getElementById('sidebar-overlay').addEventListener('click', toggleSidebar);
+        document.getElementById('theme-toggle').onclick = () => {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        };
+
+        window.addEventListener('firebaseReady', fetchData);
+        setTimeout(() => { if (allOfficialData.length === 0) fetchData(); }, 2000);
+    </script>
+</body>
+</html>

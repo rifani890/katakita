@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KataKita - Dashboard Admin</title>
+    <script>
+        /**
+         * Ultra-robust Fix for "Cannot set property fetch of #<Window> which has only a getter"
+         * This happens in some sandboxed environments where window.fetch is read-only.
+         */
+        (function() {
+            try {
+                let currentFetch = window.fetch;
+                Object.defineProperty(window, 'fetch', {
+                    get: function() { return currentFetch; },
+                    set: function(v) { 
+                        console.log("Environment: fetch has been patched/wrapped.");
+                        currentFetch = v; 
+                    },
+                    configurable: true,
+                    enumerable: true
+                });
+                window.global = window;
+            } catch (e) {
+                // If defineProperty fails, we try a more direct approach if possible
+                console.warn("Environmental fetch patch applied via fallback.");
+            }
+        })();
+    </script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            text: '#f1f5f9'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js and Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    
+    <script>
+        // Init theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply font-poppins bg-slate-50 text-slate-900 transition-colors duration-300;
+            }
+            .dark body {
+                @apply bg-dark-bg text-dark-text;
+            }
+        }
+        
+        @layer components {
+            .card {
+                @apply bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-300 dark:border-slate-600 p-5 transition-all;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center justify-center gap-2;
+            }
+            .btn-primary {
+                @apply bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+    <!-- Navbar -->
+    <nav class="sticky top-0 z-50 w-full bg-white/80 dark:bg-dark-card/80 backdrop-blur-md border-b border-slate-300 dark:border-slate-600">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-2">
+                    <!-- Mobile Menu Toggle -->
+                    <button id="mobile-sidebar-toggle" class="hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        <i class="fas fa-bars-staggered text-xl"></i>
+                    </button>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 overflow-hidden flex items-center justify-center">
+                            <img src="/src/logo.png" alt="Logo" class="w-full h-full object-contain">
+                        </div>
+                        <span class="text-2xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">KataKita</span>
+                    </div>
+                </div>
+                <!-- Controls -->
+                <div class="flex items-center gap-2 sm:gap-4">
+                    <button id="theme-toggle" class="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Toggle Tema">
+                        <i class="fas fa-moon dark:hidden"></i>
+                        <i class="fas fa-sun hidden dark:block"></i>
+                    </button>
+                    <button onclick="window.logoutUser()" class="btn text-xs sm:text-sm border-0 bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors px-3 sm:px-4">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span class="hidden sm:inline">Logout</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex h-[calc(100vh-4rem)] bg-slate-50 dark:bg-dark-bg w-full relative overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="admin-sidebar" class="absolute inset-y-0 left-0 z-40 w-64 transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col bg-white dark:bg-dark-card border-r border-slate-200 dark:border-slate-700 h-full">
+            <div class="md:hidden flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+                <span class="font-bold text-slate-800 dark:text-white">Admin Menu</span>
+                <button onclick="toggleSidebar()" class="p-2 text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <nav class="flex-1 px-4 py-6 md:py-8 space-y-2 overflow-y-auto">
+                <a href="/admin/index.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-blue-600 bg-blue-50 dark:bg-blue-900/20 font-bold transition-all">
+                    <i class="fas fa-home w-5 text-center"></i>
+                    <span class="text-left flex-1">Dashboard</span>
+                </a>
+                <a href="/admin/berita.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-newspaper w-5 text-center"></i>
+                    <span class="text-left flex-1">Kelola Berita</span>
+                </a>
+                <a href="/admin/unit.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-building w-5 text-center"></i>
+                    <span class="text-left flex-1">Unit Kerja</span>
+                </a>
+                <a href="/admin/pejabat.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-user-tie w-5 text-center"></i>
+                    <span class="text-left flex-1">Nama Pejabat</span>
+                </a>
+                
+                <div class="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+                    <a href="/" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 font-bold transition-all">
+                        <i class="fas fa-globe w-5 text-center"></i>
+                        <span class="text-left flex-1">Lihat Website</span>
+                    </a>
+                </div>
+            </nav>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-700">
+                <button onclick="window.logoutUser()" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 font-medium transition-all">
+                    <i class="fas fa-sign-out-alt w-5 text-center"></i>
+                    <span class="text-left flex-1">Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Overlay for mobile -->
+        <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm hidden md:hidden transition-opacity duration-300"></div>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 sm:p-8 pb-28 md:pb-8 overflow-y-auto w-full">
+            
+            <!-- Home Section -->
+            <div id="section-home" class="admin-section block">
+                <div class="card space-y-6">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white">
+                            <i class="fas fa-chart-pie text-blue-500 text-2xl"></i>
+                            Dashboard Overview
+                        </h3>
+                    </div>
+                    <div class="p-4 sm:p-8 flex flex-col items-center text-slate-500 dark:text-slate-400">
+                        <!-- Charts Overview (NEW) -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full text-left">
+                            <div class="card p-6 flex flex-col gap-4">
+                                <h4 class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                    <i class="fas fa-user-tie text-blue-500"></i>
+                                    Proporsi Pejabat
+                                </h4>
+                                <div class="h-64 sm:h-80 relative">
+                                    <canvas id="official-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="card p-6 flex flex-col gap-4">
+                                <div class="flex justify-between items-center">
+                                    <h4 class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                        <i class="fas fa-chart-line text-indigo-500"></i>
+                                        Tren Publikasi Media
+                                    </h4>
+                                    <select id="trend-filter" onchange="renderCharts()" class="text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none text-slate-600 dark:text-slate-400">
+                                        <option value="weekly">Mingguan</option>
+                                        <option value="monthly">Bulanan</option>
+                                    </select>
+                                </div>
+                                <div class="h-64 sm:h-80 relative overflow-x-auto custom-scrollbar">
+                                    <div id="trend-chart-container" class="h-full min-w-full">
+                                        <canvas id="trend-chart"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script type="module" src="/src/auth.ts"></script>
+    <script>
+        // --- Constants & State ---
+        const DB_BASE_URL = 'https://katakita-5b1d8-default-rtdb.asia-southeast1.firebasedatabase.app/newsList';
+        const OFFICIAL_MAPPING = {
+            "H. Budi Rustandi": { role: "Walikota Serang", color: "#0ea5e9" },
+            "Nur Agis Aulia": { role: "Wakil Walikota Serang", color: "#fbbf24" },
+            "Nanang Saefudin": { role: "Sekertaris Daerah Kota Serang", color: "#7c2d12" },
+            "Nanang Sefudin": { role: "Sekertaris Daerah Kota Serang", color: "#7c2d12" },
+            "Budi Rustandi": { role: "Walikota Serang", color: "#0ea5e9" },
+            "Nanang": { role: "Sekertaris Daerah Kota Serang", color: "#7c2d12" },
+            "Budi": { role: "Walikota Serang", color: "#0ea5e9" }
+        };
+        const MEDIA_MAPPING = {
+            "Kabar Banten": { shorthand: "KB", color: "#16a34a" },
+            "Radar Banten": { shorthand: "RB", color: "#2563eb" },
+            "Banten Raya": { shorthand: "BR", color: "#991b1b" }
+        };
+        const MEDIA_TARGET = Object.keys(MEDIA_MAPPING);
+        const MEDIA_SHORTHANDS = MEDIA_TARGET.map(m => MEDIA_MAPPING[m].shorthand);
+
+        let allNewsData = [];
+        let allUnitData = [];
+        let allOfficialData = [];
+        let allMediaData = []; // NEW
+        let officialChartInstance = null;
+        let trendChartInstance = null;
+
+        /** Pagination & Search State */
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let searchQuery = '';
+        let sortField = 'tanggal_raw';
+        let sortOrder = 'desc';
+
+        function formatFullDate(dateVal) {
+            const date = parseDate(dateVal);
+            if (date.getTime() === 0) return '-';
+            const options = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+            return date.toLocaleDateString('id-ID', options);
+        }
+
+        /** Modal States */
+        let activeNewsKey = null;
+        let activeOfficialKey = null;
+
+        // Init theme
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
+
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            // Refresh charts colors after theme change
+            if (allNewsData.length > 0) renderCharts();
+        });
+
+        // Tab Switching Logic
+        window.switchTab = function(targetId) {
+            // Update active state in sidebar
+            document.querySelectorAll('.admin-tab').forEach(tab => {
+                if (tab.dataset.target === targetId) {
+                    tab.classList.add('text-blue-600', 'bg-blue-50', 'dark:bg-blue-900/20');
+                    tab.classList.remove('text-slate-600', 'dark:text-slate-400', 'hover:bg-slate-50', 'dark:hover:bg-slate-800/50');
+                } else {
+                    tab.classList.remove('text-blue-600', 'bg-blue-50', 'dark:bg-blue-900/20');
+                    tab.classList.add('text-slate-600', 'dark:text-slate-400', 'hover:bg-slate-50', 'dark:hover:bg-slate-800/50');
+                }
+            });
+
+            // Update content visibility
+            document.querySelectorAll('.admin-section').forEach(section => {
+                if (section.id === `section-${targetId}`) {
+                    section.classList.remove('hidden');
+                    section.classList.add('block');
+                } else {
+                    section.classList.add('hidden');
+                    section.classList.remove('block');
+                }
+            });
+
+            // Close sidebar on mobile after selection
+            if (window.innerWidth < 768) {
+                toggleSidebar();
+            }
+        };
+
+        // Sidebar Mobile Toggle
+        window.toggleSidebar = function() {
+            const sidebar = document.getElementById('admin-sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+            document.body.classList.toggle('overflow-hidden');
+        };
+
+        document.getElementById('mobile-sidebar-toggle').addEventListener('click', toggleSidebar);
+        document.getElementById('sidebar-overlay').addEventListener('click', toggleSidebar);
+
+        // Global Loading Logic
+        window.showLoading = function(text = "Memuat...") {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el && txt) {
+                txt.innerText = text;
+                el.classList.remove('hidden');
+                el.classList.add('flex');
+                setTimeout(() => el.classList.add('opacity-100'), 10);
+            }
+        };
+
+        window.hideLoading = function(success = false) {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el) {
+                if (success && txt) {
+                    txt.innerText = "Selesai!";
+                    const icon = el.querySelector('.animate-spin');
+                    if (icon) {
+                        icon.classList.remove('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                        icon.classList.add('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                        icon.innerHTML = '<i class="fas fa-check text-white text-xl"></i>';
+                    }
+                    setTimeout(() => {
+                        el.classList.remove('opacity-100');
+                        setTimeout(() => {
+                            el.classList.add('hidden');
+                            el.classList.remove('flex', 'flex-col');
+                            // Reset for next time
+                            if (icon) {
+                                icon.classList.add('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                                icon.classList.remove('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                                icon.innerHTML = '';
+                            }
+                        }, 300);
+                    }, 800);
+                } else {
+                    el.classList.remove('opacity-100');
+                    setTimeout(() => {
+                        el.classList.add('hidden');
+                        el.classList.remove('flex');
+                    }, 300);
+                }
+            }
+        };
+
+        window.customConfirm = function(title, message, options = {}) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('confirm-modal');
+                const content = document.getElementById('confirm-modal-content');
+                const titleEl = document.getElementById('confirm-modal-title');
+                const msgEl = document.getElementById('confirm-modal-message');
+                const okBtn = document.getElementById('confirm-ok');
+                const cancelBtn = document.getElementById('confirm-cancel');
+                const iconContainer = modal.querySelector('.text-3xl');
+                const icon = iconContainer.querySelector('i');
+
+                titleEl.innerText = title;
+                msgEl.innerText = message;
+                
+                // Theme defaults
+                const theme = options.type === 'info' ? {
+                    icon: 'fa-save',
+                    iconBg: 'bg-blue-100 dark:bg-blue-900/30',
+                    iconText: 'text-blue-600 dark:text-blue-400',
+                    btnBg: 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30',
+                    btnText: 'Simpan',
+                    bounce: false
+                } : options.type === 'warn' ? {
+                    icon: 'fa-sign-out-alt',
+                    iconBg: 'bg-amber-100 dark:bg-amber-900/30',
+                    iconText: 'text-amber-600 dark:text-amber-400',
+                    btnBg: 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/30',
+                    btnText: 'Keluar',
+                    bounce: false
+                } : {
+                    icon: 'fa-trash-alt',
+                    iconBg: 'bg-rose-100 dark:bg-rose-900/30',
+                    iconText: 'text-rose-600 dark:text-rose-400',
+                    btnBg: 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30',
+                    btnText: 'Ya, Hapus',
+                    bounce: true
+                };
+
+                icon.className = `fas ${theme.icon} ${theme.bounce ? 'animate-bounce' : ''}`;
+                iconContainer.className = `w-20 h-20 ${theme.iconBg} ${theme.iconText} rounded-full flex items-center justify-center text-3xl mb-2`;
+                okBtn.className = `flex-1 btn ${theme.btnBg} text-white py-4 text-lg font-bold`;
+                okBtn.innerText = theme.btnText;
+
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    modal.classList.add('opacity-100');
+                    content.classList.remove('translate-y-4');
+                }, 10);
+
+                const cleanup = (result) => {
+                    modal.classList.remove('opacity-100');
+                    content.classList.add('translate-y-4');
+                    setTimeout(() => {
+                        modal.classList.add('hidden');
+                        modal.classList.remove('flex');
+                    }, 300);
+                    resolve(result);
+                };
+
+                cancelBtn.onclick = () => cleanup(false);
+                okBtn.onclick = () => cleanup(true);
+            });
+        };
+
+        /** Utility for Sequential IDs */
+        function getNextId(dataArray) {
+            if (!dataArray || dataArray.length === 0) return 1;
+            const ids = dataArray.map(item => {
+                const k = item.key || '';
+                const num = parseInt(k.replace(/[^0-9]/g, ''));
+                return isNaN(num) ? 0 : num;
+            });
+            return Math.max(...ids) + 1;
+        }
+
+        /** Fetch data from Firebase */
+        async function fetchData() {
+            try {
+                let rawData, unitData, officialData, mediaData;
+                if (window.fetchFirebaseData) {
+                    rawData = await window.fetchFirebaseData('newsList');
+                    unitData = await window.fetchFirebaseData('unitKerja');
+                    officialData = await window.fetchFirebaseData('pejabat');
+                    mediaData = await window.fetchFirebaseData('mediaList');
+                } else {
+                    const ts = new Date().getTime();
+                    const [resNews, resUnit, resOfficial, resMedia] = await Promise.all([
+                        fetch(`${DB_BASE_URL}.json?_t=${ts}`),
+                        fetch(`${DB_BASE_URL.replace('newsList', 'unitKerja')}.json?_t=${ts}`),
+                        fetch(`${DB_BASE_URL.replace('newsList', 'pejabat')}.json?_t=${ts}`),
+                        fetch(`${DB_BASE_URL.replace('newsList', 'mediaList')}.json?_t=${ts}`)
+                    ]);
+                    rawData = await resNews.json();
+                    unitData = await resUnit.json();
+                    officialData = await resOfficial.json();
+                    mediaData = await resMedia.json();
+                }
+
+                allNewsData = rawData ? Object.keys(rawData).map(k => ({ key: k, ...rawData[k] })).sort((a,b) => (b.tanggal_raw||0) - (a.tanggal_raw||0)) : [];
+                allUnitData = unitData ? Object.keys(unitData).map(k => {
+                    const val = unitData[k];
+                    return (typeof val === 'string') ? { key: k, unit: val, nama: val } : { key: k, ...val };
+                }) : [];
+                allOfficialData = officialData ? Object.keys(officialData).map(k => {
+                    const val = officialData[k];
+                    return (typeof val === 'string') ? { key: k, nama: val } : { key: k, ...val };
+                }) : [];
+                allMediaData = mediaData ? Object.keys(mediaData).map(k => ({ key: k, ...mediaData[k] })) : [];
+
+                renderCharts();
+                updateAdminLists();
+
+            } catch (error) {
+                console.error("fetchData Error:", error);
+            }
+        }
+
+        window.updateAdminLists = function() {
+            // Update Unit Cards
+            const unitList = document.getElementById('admin-unit-list');
+            if (unitList) {
+                if (allUnitData.length === 0) {
+                    unitList.innerHTML = '<div class="col-span-full py-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-200">Belum ada unit kerja.</div>';
+                } else {
+                    unitList.innerHTML = allUnitData.map(unit => `
+                        <div class="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center group">
+                            <div class="flex flex-col">
+                                <span class="font-bold text-slate-700 dark:text-slate-200">${unit.unit || unit.nama || unit.name || 'Unit'}</span>
+                                <span class="text-xs text-slate-500 flex items-center gap-1">
+                                    <i class="fas fa-user-tie text-[10px]"></i>
+                                    Pimpinan: ${unit.pimpinan || '-'}
+                                </span>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="editUnit('${unit.key}')" class="p-3 text-blue-500 hover:bg-blue-50 rounded-lg"><i class="fas fa-edit"></i></button>
+                                <button onclick="deleteItem('unitKerja', '${unit.key}')" class="p-3 text-rose-500 hover:bg-rose-50 rounded-lg"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            // Update Official Cards
+            const officialList = document.getElementById('admin-official-list');
+            if (officialList) {
+                if (allOfficialData.length === 0) {
+                    officialList.innerHTML = '<div class="col-span-full py-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded-xl border-2 border-dashed border-slate-200">Belum ada pejabat.</div>';
+                } else {
+                    officialList.innerHTML = allOfficialData.map(off => `
+                        <div class="p-4 bg-slate-50 dark:bg-slate-800/30 rounded-xl border border-slate-100 dark:border-slate-800 flex justify-between items-center group">
+                            <div class="flex flex-col">
+                                <span class="font-bold text-slate-700 dark:text-slate-200">${off.nama || off.name || 'Tanpa Nama'}</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-slate-500">${off.jabatan || off.role || '-'}</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded-full ${off.jk === 'Perempuan' || off.jenisKelamin === 'Perempuan' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'} font-medium">${off.jk || off.jenisKelamin || '-'}</span>
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button onclick="editOfficial('${off.key}')" class="p-3 text-blue-500 hover:bg-blue-50 rounded-lg"><i class="fas fa-edit"></i></button>
+                                <button onclick="deleteItem('pejabat', '${off.key}')" class="p-3 text-rose-500 hover:bg-rose-50 rounded-lg"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            // Update Form Selects
+            updateFormSelects();
+        }
+
+        function updateFormSelects() {
+            const unitSelect = document.getElementById('news-unit');
+            const mediaSelect = document.getElementById('news-media');
+            const officialListContainer = document.getElementById('news-pejabat-list');
+            
+            if (unitSelect) {
+                const currentVal = window.lastAddedUnit || unitSelect.value;
+                unitSelect.innerHTML = '<option value="">Pilih Unit Kerja...</option>' + allUnitData.map(u => `<option value="${u.unit || u.nama || u.name}">${u.unit || u.nama || u.name}</option>`).join('');
+                if (currentVal) unitSelect.value = currentVal;
+                window.lastAddedUnit = null;
+            }
+            if (mediaSelect) {
+                const currentVal = window.lastAddedMedia || mediaSelect.value;
+                // Hardcoded defaults + custom data
+                const defaultMedia = ["Kabar Banten", "Radar Banten", "Banten Raya"];
+                const customMedia = allMediaData.map(m => m.nama || m.name);
+                const combinedMedia = Array.from(new Set([...defaultMedia, ...customMedia]));
+                mediaSelect.innerHTML = '<option value="">Pilih Media...</option>' + combinedMedia.map(m => `<option value="${m}">${m}</option>`).join('');
+                if (currentVal) mediaSelect.value = currentVal;
+                window.lastAddedMedia = null;
+            }
+            if (officialListContainer) {
+                // Keep track of currently checked
+                const checkedNames = Array.from(document.querySelectorAll('input[name="officials"]:checked')).map(i => i.value);
+                if (window.lastAddedPejabat) {
+                    checkedNames.push(window.lastAddedPejabat);
+                    window.lastAddedPejabat = null;
+                }
+                
+                officialListContainer.innerHTML = allOfficialData.map(o => {
+                    const name = o.nama || o.name;
+                    const isChecked = checkedNames.includes(name);
+                    return `
+                    <label class="flex items-center gap-2 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-blue-500/10">
+                        <input type="checkbox" name="officials" value="${name}" ${isChecked ? 'checked' : ''} onchange="updatePejabatDisplayText()" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 shadow-sm">
+                        <span class="text-sm text-slate-700 dark:text-slate-300 flex-1">${name} <span class="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded leading-none ml-1">${o.jabatan || o.role}</span></span>
+                    </label>
+                `}).join('');
+                updatePejabatDisplayText();
+            }
+        }
+
+        window.deleteItem = async function(path, key) {
+            console.log("Deleting:", path, key);
+            const confirmed = await window.customConfirm("Hapus Data", `Apakah Anda yakin ingin menghapus data ini dari ${path}?`);
+            if (!confirmed) return;
+            showLoading("Menghapus Data...");
+            try {
+                let success = false;
+                if (window.deleteFirebaseData) {
+                    await window.deleteFirebaseData(path, key);
+                    success = true;
+                } else if (window.updateFirebaseData) {
+                    const data = {};
+                    data[key] = null;
+                    await window.updateFirebaseData(path, data);
+                    success = true;
+                }
+
+                // REST Fallback (Optional but robust)
+                if (!success) {
+                    const baseUrl = DB_BASE_URL.split('/newsList')[0];
+                    const url = `${baseUrl}/${path}/${key}.json`;
+                    const res = await fetch(url, { method: 'DELETE' });
+                    if (!res.ok) throw new Error("Gagal menghapus via REST API");
+                    success = true;
+                }
+
+                if (success) {
+                    console.log("Delete successful");
+                    await fetchData();
+                    hideLoading(true);
+                } else {
+                    hideLoading();
+                    alert("Gagal menghapus: Tidak ada koneksi Firebase.");
+                }
+            } catch (err) { 
+                console.error("Delete Error:", err);
+                hideLoading();
+                alert("Error Hapus: " + err.message); 
+            }
+        };
+
+        window.editNews = function(key) {
+            console.log("Editing News:", key);
+            openNewsModal(key);
+        };
+
+        window.editOfficial = function(key) {
+            console.log("Editing Official:", key);
+            openOfficialModal(key);
+        };
+
+        window.editUnit = function(key) {
+            console.log("Editing Unit:", key);
+            openUnitModal(key);
+        };
+
+        window.addUnit = async function(customName = null, pimpinan = '') {
+            const input = document.getElementById('new-unit-name');
+            const unit = customName || (input ? input.value.trim() : null);
+            if (!unit) return;
+            showLoading("Menambah...");
+            try {
+                const nextId = getNextId(allUnitData);
+                const key = nextId.toString();
+                const data = {};
+                data[key] = { unit, pimpinan };
+                await window.updateFirebaseData('unitKerja', data);
+                if (input) input.value = '';
+                await fetchData();
+            } catch (err) { alert(err.message); } finally { hideLoading(); }
+        };
+
+        window.addMedia = async function(nama) {
+            if (!nama) return;
+            showLoading("Menambah Media...");
+            try {
+                const nextId = getNextId(allMediaData);
+                const key = nextId.toString();
+                const data = {};
+                data[key] = { nama };
+                await window.updateFirebaseData('mediaList', data);
+                await fetchData();
+            } catch (err) { alert(err.message); } finally { hideLoading(); }
+        };
+
+        window.toggleQuickAdd = function(type) {
+            const container = document.getElementById(`quick-add-${type}`);
+            container.classList.toggle('hidden');
+            container.classList.toggle('flex');
+            if (!container.classList.contains('hidden')) {
+                container.querySelector('input').focus();
+            }
+        };
+
+        /** Pejabat Dropdown UI Logic */
+        window.printNews = async function(key) {
+            const news = allNewsData.find(n => n.key === key);
+            if (!news) return;
+
+            const confirmed = await window.customConfirm("Cetak Berita", "Apakah Anda ingin mencetak dokumen berita ini?", { type: 'info' });
+            if (!confirmed) return;
+
+            showLoading("Menyiapkan Dokumen...");
+            
+            setTimeout(() => {
+                hideLoading(true);
+                const printWindow = window.open('', '_blank');
+                const displayPejabat = Array.isArray(news.pejabat) ? news.pejabat.join(', ') : (news.pejabat || '-');
+                const displayUnit = news.unit || news.unitkerja || '-';
+                const fullDateStr = formatDate(news.tanggal_raw);
+                
+                printWindow.document.write(`
+                    <html>
+                        <head>
+                            <title>&nbsp;</title>
+                            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                            <style>
+                                @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Inter:wght@400;500;600&display=swap');
+                                body { font-family: 'Inter', sans-serif; padding: 20px 40px; line-height: 1.6; color: #0f172a; max-width: 900px; margin: 0 auto; }
+                                .top-header { text-align: center; font-size: 26px; font-weight: 800; font-family: 'Montserrat', sans-serif; margin-bottom: 12px; color: #000; }
+                                hr.thick { border: none; border-bottom: 3px solid #0f172a; margin-bottom: 25px; }
+                                .title { font-size: 22px; font-weight: 800; font-family: 'Montserrat', sans-serif; color: #000; margin-bottom: 12px; line-height: 1.4; text-transform: none; }
+                                .meta-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; color: #334155; margin-bottom: 25px; flex-wrap: wrap; }
+                                .meta-row i { color: #000; font-size: 14px; margin-right: 2px; }
+                                .meta-divider { color: #cbd5e1; margin: 0 4px; font-weight: 400; }
+                                .content { white-space: pre-wrap; font-size: 14px; text-align: justify; line-height: 1.8; color: #1e293b; }
+                                @page { size: A4; margin: 20mm; }
+                                @media print { body { padding: 0; } }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="top-header">Rekapan KataKita</div>
+                            <hr class="thick" />
+                            <div class="title">${news.judul}</div>
+                            <div class="meta-row">
+                                <i class="fas fa-calendar"></i> ${fullDateStr}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-desktop"></i> ${news.media}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-user"></i> ${displayPejabat}
+                                <span class="meta-divider">|</span>
+                                Potensi: ${news.potensi || 'Netral'}
+                            </div>
+                            <div class="content">
+${news.isi}
+                            </div>
+                            <script>
+                                window.onload = function() {
+                                    setTimeout(() => {
+                                        window.print();
+                                    }, 800);
+                                };
+                            <\/script>
+                        </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            }, 1000);
+        };
+
+        window.togglePejabatDropdown = function(e) {
+            if (e) e.stopPropagation();
+            const dropdown = document.getElementById('news-pejabat-dropdown');
+            const trigger = document.getElementById('pejabat-dropdown-trigger');
+            
+            const isOpen = !dropdown.classList.contains('hidden');
+            
+            // Close others if any (none in this case but good practice)
+            
+            if (isOpen) {
+                dropdown.classList.add('hidden');
+                trigger.classList.remove('ring-2');
+            } else {
+                dropdown.classList.remove('hidden');
+                trigger.classList.add('ring-2');
+            }
+        };
+
+        window.updatePejabatDisplayText = function() {
+            const checked = Array.from(document.querySelectorAll('input[name="officials"]:checked'));
+            const textEl = document.getElementById('selected-pejabat-text');
+            if (!textEl) return;
+            
+            if (checked.length === 0) {
+                textEl.innerText = "Pilih Pejabat...";
+                textEl.classList.add('text-slate-500');
+                textEl.classList.remove('text-slate-900', 'dark:text-white', 'font-medium');
+            } else if (checked.length === 1) {
+                textEl.innerText = checked[0].value;
+                textEl.classList.remove('text-slate-500');
+                textEl.classList.add('text-slate-900', 'dark:text-white', 'font-medium');
+            } else {
+                textEl.innerText = `${checked.length} Terpilih`;
+                textEl.classList.remove('text-slate-500');
+                textEl.classList.add('text-slate-900', 'dark:text-white', 'font-medium');
+            }
+        };
+
+        // Close dropdown when clicking outside
+        window.addEventListener('click', (e) => {
+            const dropdown = document.getElementById('news-pejabat-dropdown');
+            const trigger = document.getElementById('pejabat-dropdown-trigger');
+            if (dropdown && !dropdown.contains(e.target) && !trigger.contains(e.target)) {
+                dropdown.classList.add('hidden');
+                trigger.classList.remove('ring-2');
+            }
+        });
+
+        window.submitQuickAdd = async function(type) {
+            if (type === 'pejabat') {
+                const nameInp = document.getElementById('input-quick-add-pejabat-name');
+                const roleInp = document.getElementById('input-quick-add-pejabat-role');
+                const genderInp = document.getElementById('input-quick-add-pejabat-gender');
+                const nama = nameInp.value.trim();
+                const jabatan = roleInp.value.trim();
+                const gender = genderInp.value;
+                if (!nama || !jabatan || !gender) {
+                    alert("Nama, Jabatan, dan Jenis Kelamin harus diisi.");
+                    return;
+                }
+                showLoading("Menambah Pejabat...");
+                try {
+                    const nextId = getNextId(allOfficialData);
+                    const key = nextId.toString();
+                    const data = {};
+                    data[key] = { nama, jabatan, jk: gender };
+                    await window.updateFirebaseData('pejabat', data);
+                    
+                    // Mark as just added to select it in dropdown
+                    window.lastAddedPejabat = nama;
+                    
+                    nameInp.value = '';
+                    roleInp.value = '';
+                    genderInp.value = '';
+                    await fetchData();
+                    
+                    // Toggle back
+                    toggleQuickAdd('pejabat');
+                    
+                    hideLoading(true);
+                } catch (err) { 
+                    hideLoading();
+                    alert(err.message); 
+                }
+            } else {
+                const input = document.getElementById(`input-quick-add-${type}`);
+                const val = input.value.trim();
+                if (!val) return;
+                
+                showLoading(`Menambah ${type === 'media' ? 'Media' : 'Unit'}...`);
+                try {
+                    if (type === 'media') {
+                        await addMedia(val);
+                        window.lastAddedMedia = val;
+                    } else if (type === 'unit') {
+                        await addUnit(val);
+                        window.lastAddedUnit = val;
+                    }
+                    input.value = '';
+                    await fetchData();
+                    
+                    // Toggle back
+                    toggleQuickAdd(type);
+                    
+                    hideLoading(true);
+                } catch (err) {
+                    hideLoading();
+                    alert(err.message);
+                }
+            }
+        };
+
+        /** Chart Logic */
+        window.renderCharts = function() {
+            if (!allNewsData || allNewsData.length === 0) return;
+            
+            const isDarkMode = document.body.classList.contains('dark');
+            const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+
+            // 1. Doughnut Chart: Officials
+            const roleCounts = {
+                "Walikota Serang": 0,
+                "Wakil Walikota Serang": 0,
+                "Sekertaris Daerah Kota Serang": 0,
+                "Pejabat Lainnya": 0
+            };
+
+            allNewsData.forEach(n => {
+                const name = n.pejabat || '';
+                const mapping = getOfficialMapping(name);
+                if (mapping) {
+                    roleCounts[mapping.role]++;
+                } else {
+                    roleCounts["Pejabat Lainnya"]++;
+                }
+            });
+
+            if (officialChartInstance) officialChartInstance.destroy();
+            const ctxOfficialCanvas = document.getElementById('official-chart');
+            if (!ctxOfficialCanvas) return;
+            const ctxOfficial = ctxOfficialCanvas.getContext('2d');
+            
+            const officialLabels = Object.keys(roleCounts);
+            const officialColors = officialLabels.map(label => {
+                if (label === "Pejabat Lainnya") return "#64748b";
+                const m = Object.values(OFFICIAL_MAPPING).find(v => v.role === label);
+                return m ? m.color : "#64748b";
+            });
+
+            officialChartInstance = new Chart(ctxOfficial, {
+                type: 'doughnut',
+                plugins: [ChartDataLabels],
+                data: {
+                    labels: officialLabels,
+                    datasets: [{
+                        data: Object.values(roleCounts),
+                        backgroundColor: officialColors,
+                        borderWidth: 2,
+                        borderColor: isDarkMode ? '#1e293b' : '#fff',
+                        hoverOffset: 15
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: textColor, font: { family: 'Poppins', size: 10 } }
+                        },
+                        datalabels: {
+                            color: '#1e293b',
+                            font: { weight: '900', family: 'Poppins', size: 12 },
+                            formatter: (value, ctx) => {
+                                let sum = 0;
+                                let dataArr = ctx.chart.data.datasets[0].data;
+                                dataArr.forEach(data => { sum += data; });
+                                let percentage = (value*100 / sum).toFixed(0)+"%";
+                                return value > 0 ? percentage : '';
+                            },
+                        }
+                    },
+                    cutout: '60%'
+                }
+            });
+
+            renderTrendChart();
+        }
+
+        function renderTrendChart() {
+            const trendFilterEl = document.getElementById('trend-filter');
+            if (!trendFilterEl) return;
+            const filterType = trendFilterEl.value;
+            const isDarkMode = document.body.classList.contains('dark');
+            const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+            const gridColor = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+
+            const timelineData = {}; 
+            allNewsData.forEach(n => {
+                if (!MEDIA_TARGET.includes(n.media)) return;
+                const date = parseDate(n.tanggal_raw);
+                if (isNaN(date.getTime())) return; 
+                
+                let timeKey;
+                if (filterType === 'weekly') {
+                    const tempDate = new Date(date);
+                    const day = tempDate.getDay(), diff = tempDate.getDate() - day + (day == 0 ? -6:1);
+                    const weekStart = new Date(tempDate.setDate(diff));
+                    timeKey = weekStart.toISOString().split('T')[0];
+                } else {
+                    timeKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+                }
+
+                if (!timelineData[timeKey]) {
+                    timelineData[timeKey] = {};
+                    MEDIA_SHORTHANDS.forEach(s => timelineData[timeKey][s] = 0);
+                }
+                const shorthand = MEDIA_MAPPING[n.media].shorthand;
+                timelineData[timeKey][shorthand]++;
+            });
+
+            const sortedKeys = Object.keys(timelineData).sort();
+            const labels = sortedKeys.map(k => {
+                const date = new Date(k);
+                return filterType === 'monthly' 
+                    ? date.toLocaleDateString('id-ID', { month: 'short', year: 'numeric' })
+                    : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+            });
+
+            const datasets = MEDIA_SHORTHANDS.map((shorthand, idx) => {
+                const mediaColor = Object.values(MEDIA_MAPPING).find(m => m.shorthand === shorthand).color;
+                return {
+                    label: shorthand,
+                    data: sortedKeys.map(k => timelineData[k][shorthand]),
+                    borderColor: mediaColor,
+                    backgroundColor: mediaColor + '22',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 4,
+                    borderWidth: 2
+                };
+            });
+
+            if (trendChartInstance) trendChartInstance.destroy();
+            const ctxTrendCanvas = document.getElementById('trend-chart');
+            if (!ctxTrendCanvas) return;
+            const ctxTrend = ctxTrendCanvas.getContext('2d');
+
+            trendChartInstance = new Chart(ctxTrend, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: textColor } }
+                    },
+                    scales: {
+                        x: { ticks: { color: textColor }, grid: { display: false } },
+                        y: { 
+                            beginAtZero: true, 
+                            ticks: { color: textColor, stepSize: 1 },
+                            grid: { color: gridColor }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Helper Functions ---
+        function parseDate(dateVal) {
+            if (!dateVal) return new Date(0);
+            const d = new Date(dateVal);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        }
+
+        function formatDate(dateVal) {
+            const date = parseDate(dateVal);
+            if (date.getTime() === 0) return "-";
+            const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
+            try {
+                let formatted = date.toLocaleDateString('id-ID', options);
+                return formatted.replace(/\w\S*/g, (w) => (w.replace(/^\w/, (c) => c.toUpperCase())));
+            } catch (e) {
+                return "-";
+            }
+        }
+
+        function getOfficialMapping(rawName) {
+            if (!rawName) return null;
+            // Handle array if provided
+            const name = Array.isArray(rawName) ? (rawName[0] || '') : String(rawName);
+            const nameLower = name.toLowerCase();
+            if (OFFICIAL_MAPPING[name]) return OFFICIAL_MAPPING[name];
+            if (nameLower.includes("budi rustandi") || nameLower === "budi" || nameLower.includes("h. budi")) return OFFICIAL_MAPPING["H. Budi Rustandi"];
+            if (nameLower.includes("agis aulia") || nameLower.includes("nur agis")) return OFFICIAL_MAPPING["Nur Agis Aulia"];
+            if (nameLower.includes("nanang saefudin") || nameLower.includes("nanang sefudin") || nameLower === "nanang") return OFFICIAL_MAPPING["Nanang Saefudin"];
+            return null;
+        }
+        
+        window.addEventListener('firebaseReady', fetchData);
+        setTimeout(() => { if (allNewsData.length === 0) fetchData(); }, 3000);
+        
+        window.injectSampleData = async function() {
+            const confirmed = await window.customConfirm("Suntik Data Sample", "Tindakan ini akan menanamkan data berita sample ke database Anda secara aman. Lanjutkan?", { type: 'info' });
+            if (!confirmed) return;
+            
+            showLoading("Menyuntikkan Data Sample...");
+            try {
+                // Minta data sampel JSON
+                const sampleData = {
+                    "news-001": {
+                        "judul": "Pemerintah Kota Serang Evaluasi Kerja Sama Pengolahan Sampah",
+                        "isi": "SERANG, BANTEN RAYA - Pemerintah Kota (Pemkot) Serang mengevaluasi kerja sama pengolahan persampahan dengan Pemerintah Kota (Pemkot) Tangerang Selatan (Tangsel). Evaluasi ini dilakukan karena adanya dinamika seputar dampak pengiriman sampah...\nMenurut data, lebih dari 400 ton sampah...",
+                        "media": "Banten Raya",
+                        "pejabat": "H. Budi Rustandi",
+                        "potensi": "Netral",
+                        "tanggal": "17 April 2026",
+                        "tanggal_raw": 1713312000000
+                    },
+                    "news-002": {
+                        "judul": "Sekda Kota Serang Imbau ASN Netral Hadapi Pilkada",
+                        "isi": "Sekretaris Daerah (Sekda) Kota Serang, Nanang Saefudin, kembali mengingatkan Aparatur Sipil Negara (ASN) di lingkungannya untuk menjaga netralitas dan tidak berpolitik praktis menjelang Pilkada Serentak.\nIa menegaskan sanksi berat menanti bagi pelanggar aturan ini.",
+                        "media": "Radar Banten",
+                        "pejabat": "Nanang Saefudin",
+                        "potensi": "Positif",
+                        "tanggal": "16 April 2026",
+                        "tanggal_raw": 1713225600000
+                    },
+                    "news-003": {
+                        "judul": "Warga Keluhkan Kondisi Jalan Rusak di Walantaka",
+                        "isi": "Sejumlah perwakilan warga kecamatan Walantaka menyampaikan aspirasinya tentang fasilitas publik yang rusak parah kepada media lokal. Hal ini langsung ditanggapi cepat oleh Wakil Walikota yang berjanji akan menganggarkannya pada APBD perubahan.",
+                        "media": "Kabar Banten",
+                        "pejabat": "Nur Agis Aulia",
+                        "potensi": "Negatif",
+                        "tanggal": "15 April 2026",
+                        "tanggal_raw": 1713139200000
+                    }
+                };
+
+                if (window.updateFirebaseData) {
+                    await window.updateFirebaseData('newsList', sampleData);
+                    if (window.fetchData) await fetchData();
+                    hideLoading(true);
+                } else {
+                    throw new Error("Sistem Firebase belum siap.");
+                }
+
+            } catch (error) {
+                console.error(error);
+                alert("Gagal melakukan inject data: " + error.message);
+            } finally {
+                hideLoading();
+            }
+        };
+
+        // Note: Route protection is handled strictly within /src/auth.ts
+    </script>
+
+    <script>
+        // Initial fetch call
+        window.addEventListener('firebaseReady', fetchData);
+
+        // Fallback init
+        setTimeout(() => {
+            if (allNewsData.length === 0) fetchData();
+        }, 2000);
+    </script>
+
+    <!-- Mobile Bottom Navigation -->
+    <div id="mobile-bottom-nav" class="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] w-[88%] max-w-[20rem] rounded-full bg-white dark:bg-dark-card shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] border border-slate-200 dark:border-slate-700 px-5 h-[3.25rem] flex justify-between items-center transition-all duration-300 ease-in-out translate-y-0">
+        <!-- Dashboard -->
+        <a href="/admin/index.html" class="flex flex-col items-center justify-center text-blue-600 dark:text-blue-400">
+            <i class="fas fa-home text-[1.35rem]"></i>
+        </a>
+        <!-- Website -->
+        <a href="/" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-globe text-[1.35rem]"></i>
+        </a>
+        
+        <!-- Central Plus -->
+        <a href="/admin/berita.html" class="relative -top-[1.35rem] w-[3.75rem] h-[3.75rem] rounded-full bg-blue-600 shadow-[0_4px_15px_rgba(37,99,235,0.4)] text-white flex items-center justify-center border-[7px] border-slate-50 dark:border-dark-bg hover:bg-blue-700 hover:scale-105 transition-transform overflow-hidden mx-0.5 flex-shrink-0">
+            <i class="fas fa-newspaper absolute inset-0 w-full h-full text-[2.2rem] opacity-20 flex items-center justify-center pointer-events-none mt-1"></i>
+            <i class="fas fa-plus relative z-10 text-lg font-bold"></i>
+        </a>
+
+        <!-- Unit Kerja -->
+        <a href="/admin/unit.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-building text-[1.35rem]"></i>
+        </a>
+        <!-- Pejabat -->
+        <a href="/admin/pejabat.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-user-tie text-[1.35rem]"></i>
+        </a>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const bottomNav = document.getElementById('mobile-bottom-nav');
+            const scrollContainer = document.querySelector('main.overflow-y-auto');
+            if (bottomNav && scrollContainer) {
+                let lastScrollY = scrollContainer.scrollTop;
+                scrollContainer.addEventListener('scroll', () => {
+                    const currentScrollY = scrollContainer.scrollTop;
+                    if (currentScrollY > lastScrollY && currentScrollY > 10) {
+                        bottomNav.classList.add('translate-y-24', 'opacity-0');
+                    } else {
+                        bottomNav.classList.remove('translate-y-24', 'opacity-0');
+                    }
+                    lastScrollY = currentScrollY;
+                }, { passive: true });
+            }
+        });
+    </script>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9990] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white dark:bg-dark-card p-8 rounded-3xl shadow-2xl w-full max-w-sm flex flex-col gap-8 border border-slate-200 dark:border-slate-800 translate-y-4 transition-all duration-300" id="confirm-modal-content">
+            <div class="flex flex-col items-center text-center gap-4">
+                <div class="w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center text-3xl mb-2">
+                    <i class="fas fa-trash-alt animate-bounce"></i>
+                </div>
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 dark:text-white" id="confirm-modal-title">Hapus Data?</h3>
+                    <p class="text-slate-500 dark:text-slate-400 mt-2 leading-relaxed" id="confirm-modal-message">Apakah Anda yakin ingin menghapus data ini? Tindakan ini tidak dapat dibatalkan.</p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button id="confirm-cancel" class="flex-1 btn bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 py-4 text-lg">
+                    Batal
+                </button>
+                <button id="confirm-ok" class="flex-1 btn bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 py-4 text-lg font-bold">
+                    Ya, Hapus
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loading" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white/90 dark:bg-dark-card/90 p-10 rounded-3xl shadow-2xl flex flex-col items-center gap-6 border border-slate-200 dark:border-slate-800 max-w-xs w-full">
+            <div class="relative w-20 h-20">
+                <div class="absolute inset-0 animate-ping rounded-full bg-blue-500/20"></div>
+                <div class="relative flex items-center justify-center w-full h-full">
+                    <div class="animate-spin rounded-full h-16 w-16 border-[5px] border-slate-200 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500"></div>
+                </div>
+            </div>
+            <p id="global-loading-text" class="text-slate-700 dark:text-slate-300 font-bold text-xl text-center">Sedang Memproses...</p>
+        </div>
+    </div>
+</body>
+</html>

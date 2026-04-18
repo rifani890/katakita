@@ -1,0 +1,2257 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KataKita - Pemantau Berita</title>
+    <script>
+        /**
+         * Ultra-robust Fix for "Cannot set property fetch of #<Window> which has only a getter"
+         * This happens in some sandboxed environments where window.fetch is read-only.
+         */
+        (function() {
+            try {
+                let currentFetch = window.fetch;
+                Object.defineProperty(window, 'fetch', {
+                    get: function() { return currentFetch; },
+                    set: function(v) { 
+                        console.log("Environment: fetch has been patched/wrapped.");
+                        currentFetch = v; 
+                    },
+                    configurable: true,
+                    enumerable: true
+                });
+                window.global = window;
+            } catch (e) {
+                // If defineProperty fails, we try a more direct approach if possible
+                console.warn("Environmental fetch patch applied via fallback.");
+            }
+        })();
+    </script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            text: '#f1f5f9'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Chart.js and Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+
+    <script>
+        // Init theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply font-poppins bg-slate-50 text-slate-900 transition-colors duration-300;
+            }
+            .dark body {
+                @apply bg-dark-bg text-dark-text;
+            }
+        }
+        
+        @layer components {
+            .card {
+                @apply bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-300 dark:border-slate-600 p-5 transition-all;
+            }
+            .stat-card {
+                @apply card border-l-4;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center justify-center gap-2;
+            }
+            .btn-primary {
+                @apply bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30;
+            }
+            .badge {
+                @apply px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider;
+            }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Print Styles */
+        @media print {
+            @page {
+                size: A4;
+                margin: 20mm;
+            }
+            /* Hide all UI elements and specifically the logo */
+            nav, main, footer, #modal-overlay, #print-news-btn, #close-modal, #close-modal-btn, #modal-loading, #modal-header, img[alt="Logo"] {
+                display: none !important;
+            }
+            
+            body, html {
+                background: white !important;
+                color: black !important;
+                height: auto !important;
+                overflow: visible !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+
+            /* Make modal contents static and visible */
+            #news-modal {
+                position: relative !important;
+                display: block !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: auto !important;
+                min-height: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                z-index: 100 !important;
+                overflow: visible !important;
+            }
+
+            #modal-card {
+                position: relative !important;
+                width: 100% !important;
+                max-width: none !important;
+                height: auto !important;
+                max-height: none !important;
+                display: block !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
+                transform: none !important;
+                opacity: 1 !important;
+                background: white !important;
+            }
+
+            #modal-body {
+                padding: 0 !important;
+                overflow: visible !important;
+                height: auto !important;
+                max-height: none !important;
+                display: block !important;
+            }
+
+            #modal-content {
+                display: block !important;
+            }
+            
+            #print-area {
+                display: block !important;
+                visibility: visible !important;
+            }
+
+            .print-header {
+                display: flex !important;
+                visibility: visible !important;
+                border-bottom: 2px solid #000 !important;
+                margin-bottom: 30px !important;
+                padding-bottom: 15px !important;
+                justify-content: space-between !important;
+                align-items: flex-end !important;
+                color-adjust: exact;
+                -webkit-print-color-adjust: exact;
+            }
+
+            .print-content {
+                line-height: 1.8 !important;
+                font-size: 12pt !important;
+                color: black !important;
+                text-align: justify !important;
+                display: block !important;
+                visibility: visible !important;
+            }
+            
+            #modal-title {
+                color: black !important;
+                font-weight: bold !important;
+            }
+            
+            .badge {
+                border: 1px solid #ccc !important;
+                background: none !important;
+                color: black !important;
+            }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            @apply bg-slate-100 dark:bg-slate-800;
+        }
+        ::-webkit-scrollbar-thumb {
+            @apply bg-slate-300 dark:bg-slate-600 rounded-full hover:bg-slate-400 dark:hover:bg-slate-500;
+        }
+        
+        .disable-scrollbars::-webkit-scrollbar {
+            display: none;
+        }
+        .disable-scrollbars {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Chart Tooltip customization to match dark mode */
+        canvas {
+            max-width: 100%;
+        }
+
+        /* Rocket Scroll Animation Classes */
+        .rocket-hide-up {
+            transform: translateY(-200px) scale(0.5);
+            opacity: 0;
+            pointer-events: none;
+        }
+        .rocket-hide-down {
+            transform: translateY(100px) scale(0.5);
+            opacity: 0;
+            pointer-events: none;
+        }
+        .rocket-show {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+    <!-- Navbar -->
+    <nav class="sticky top-0 z-50 w-full bg-white/80 dark:bg-dark-card/80 backdrop-blur-md border-b border-slate-300 dark:border-slate-600">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 overflow-hidden flex items-center justify-center">
+                        <img src="./src/logo.png" alt="Logo" class="w-full h-full object-contain">
+                    </div>
+                    <span class="text-2xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">KataKita</span>
+                </div>
+                <div class="relative flex items-center gap-2 sm:gap-3">
+                    <button id="theme-toggle" class="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Toggle Tema">
+                        <i class="fas fa-moon dark:hidden"></i>
+                        <i class="fas fa-sun hidden dark:block"></i>
+                    </button>
+
+                    <!-- Ke Admin Button (Visible when logged in) -->
+                    <a href="/admin/index.html" id="admin-dashboard-btn" class="hidden btn text-sm border-0 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors items-center gap-2 px-4 py-2 font-bold rounded-lg cursor-pointer">
+                        <i class="fas fa-chart-line"></i>
+                        <span class="hidden sm:inline">Admin</span>
+                    </a>
+
+                    <!-- Authentication Button (Login / Logout) -->
+                    <button id="login-dropdown-btn" class="hidden">
+                        <!-- this will be populated dynamically by auth.ts -->
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Dashboard Page -->
+        <div id="page-dashboard" class="page-content space-y-8">
+            <!-- Stats Row -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div id="stat-total" class="stat-card border-l-blue-500 animate-pulse bg-slate-200 dark:bg-slate-800 h-24"></div>
+                <div id="stat-positive" class="stat-card border-l-emerald-500 animate-pulse bg-slate-200 dark:bg-slate-800 h-24"></div>
+                <div id="stat-neutral" class="stat-card border-l-slate-400 animate-pulse bg-slate-200 dark:bg-slate-800 h-24"></div>
+                <div id="stat-negative" class="stat-card border-l-rose-500 animate-pulse bg-slate-200 dark:bg-slate-800 h-24"></div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Doughnut Chart: Officials -->
+                <div class="card space-y-6 flex flex-col items-start sm:items-stretch">
+                    <div class="w-full flex flex-col sm:flex-row items-start sm:items-center justify-start sm:justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white text-left">
+                            <i class="fas fa-user-tie text-blue-500 text-2xl"></i>
+                            Nama Pejabat
+                        </h3>
+                    </div>
+                    <div class="relative h-[300px] flex items-center justify-center">
+                        <canvas id="official-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Line Chart: Media Trends -->
+                <div class="card space-y-6 flex flex-col items-start sm:items-stretch">
+                    <div class="w-full flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                        <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white text-left">
+                            <i class="fas fa-chart-line text-indigo-500 text-2xl"></i>
+                            Tren Media Cetak
+                        </h3>
+                        <div class="flex items-center">
+                            <select id="trend-filter" class="text-sm bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 transition-all font-semibold text-slate-600 dark:text-slate-300">
+                                <option value="weekly">Mingguan</option>
+                                <option value="monthly">Bulanan</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom Legenda (Tetap di tengah meski kurva digeser) -->
+                    <div id="custom-legend" class="flex flex-wrap items-center justify-center gap-8 py-2 w-full">
+                        <div class="flex items-center gap-2 cursor-pointer hover:opacity-100 opacity-70 transition-all group" 
+                             onclick="filterByParam('media', 'Media: KB', 'Kabar Banten')"
+                             onmouseenter="highlightTrendLine('KB')" 
+                             onmouseleave="resetTrendHighlight()">
+                            <div class="w-4 h-4 rounded-full bg-[#16a34a] ring-2 ring-transparent group-hover:ring-green-400 transition-all"></div>
+                            <span class="text-sm font-bold text-slate-600 dark:text-slate-400">KB</span>
+                        </div>
+                        <div class="flex items-center gap-2 cursor-pointer hover:opacity-100 opacity-70 transition-all group" 
+                             onclick="filterByParam('media', 'Media: RB', 'Radar Banten')"
+                             onmouseenter="highlightTrendLine('RB')" 
+                             onmouseleave="resetTrendHighlight()">
+                            <div class="w-4 h-4 rounded-full bg-[#2563eb] ring-2 ring-transparent group-hover:ring-blue-400 transition-all"></div>
+                            <span class="text-sm font-bold text-slate-600 dark:text-slate-400">RB</span>
+                        </div>
+                        <div class="flex items-center gap-2 cursor-pointer hover:opacity-100 opacity-70 transition-all group" 
+                             onclick="filterByParam('media', 'Media: BR', 'Banten Raya')"
+                             onmouseenter="highlightTrendLine('BR')" 
+                             onmouseleave="resetTrendHighlight()">
+                            <div class="w-4 h-4 rounded-full bg-[#991b1b] ring-2 ring-transparent group-hover:ring-red-400 transition-all"></div>
+                            <span class="text-sm font-bold text-slate-600 dark:text-slate-400">BR</span>
+                        </div>
+                    </div>
+
+                    <div class="relative w-full h-[250px] bg-white dark:bg-slate-900 rounded-xl p-4">
+                        <div class="w-full h-full overflow-x-auto overflow-y-hidden custom-scrollbar">
+                            <div id="trend-chart-container" class="h-full" style="min-width: 100%;">
+                                <canvas id="trend-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- News List Section (Integrated at Bottom) -->
+            <div id="news-section" class="card space-y-6 mt-12">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white text-left">
+                        <i class="fas fa-newspaper text-blue-600 text-2xl"></i>
+                        Daftar Berita Terbaru
+                    </h3>
+                    <div class="relative w-full sm:w-72">
+                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="news-search" placeholder="Cari berdasarkan semua informasi (judul, potensi, pejabat, tanggal, user)..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-sm">
+                    </div>
+                </div>
+
+                <!-- List Wrapper -->
+                <div class="w-full">
+                    <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 mb-4 pr-2">
+                        <div class="px-2 py-4 font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider text-xs">Informasi Berita</div>
+                        <button onclick="filterByParam('potensi', 'Semua Berita', null)" class="text-xs font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors flex items-center gap-1 group">
+                            Buka Detail <i class="fas fa-external-link-alt text-[10px] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"></i>
+                        </button>
+                    </div>
+                    
+                    <div id="news-list-body" class="flex flex-col gap-4">
+                        <!-- Loading placeholder -->
+                        <div class="animate-pulse bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-8 text-center text-slate-400">
+                            Sedang memuat data...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pagination Main -->
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-6 pt-4">
+                    <div class="flex items-center gap-3 text-sm text-slate-500 font-medium">
+                        <span>Tampilkan</span>
+                        <select id="news-page-size" class="bg-blue-50/50 dark:bg-slate-950/50 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 dark:text-slate-300 transition-colors hover:bg-white dark:hover:bg-slate-900">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="all">Semua</option>
+                        </select>
+                        <span>baris</span>
+                    </div>
+                    <div id="news-pagination-controls" class="flex gap-2">
+                        <!-- Pagination buttons here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Filter Page (Keep separate for focus) -->
+        <div id="page-detail" class="page-content space-y-8 hidden">
+            <!-- Detail Table Section -->
+            <div id="detail-section" class="card space-y-6 border-2 bg-slate-50 dark:bg-slate-800/10">
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div class="space-y-1">
+                        <h3 class="text-xl font-bold flex items-center gap-3">
+                            <i class="fas fa-filter text-blue-600"></i>
+                            <div id="filter-label" class="inline-flex items-center">Semua</div>
+                        </h3>
+                    </div>
+                    <button id="clear-filter" class="text-sm text-rose-500 font-semibold hover:underline flex items-center gap-1">
+                        <i class="fas fa-times-circle"></i> Kembali ke Dashboard
+                    </button>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                     <div class="relative w-full sm:w-64">
+                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                        <input type="text" id="detail-search" placeholder="Cari berdasarkan semua informasi (judul, media, pejabat, potensi, unit, user, dll)..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm">
+                    </div>
+                    <div class="flex items-center gap-4 bg-slate-100 dark:bg-slate-900/50 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700/60 overflow-x-auto w-full sm:w-auto disable-scrollbars" id="detail-header">
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">Urutkan:</span>
+                        <div class="h-4 w-px bg-slate-300 dark:bg-slate-600 hidden sm:block"></div>
+                        <button class="text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-500 flex items-center gap-1 transition-colors whitespace-nowrap outline-none" data-sort="no">Data <i class="fas fa-sort opacity-40 ml-1"></i></button>
+                        <button class="text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-500 flex items-center gap-1 transition-colors whitespace-nowrap outline-none" data-sort="date">Tanggal <i class="fas fa-sort opacity-40 ml-1"></i></button>
+                        <button class="text-sm font-semibold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-500 flex items-center gap-1 transition-colors whitespace-nowrap outline-none" data-sort="title">Judul <i class="fas fa-sort opacity-40 ml-1"></i></button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto w-full">
+                    <div class="flex flex-col gap-4" id="detail-list-body">
+                        <!-- Content -->
+                    </div>
+                </div>
+
+                <!-- Pagination Detail -->
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4">
+                    <span id="detail-info" class="text-sm text-slate-500 font-medium"></span>
+                    <div id="detail-pagination-controls" class="flex gap-2"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal: Baca Berita -->
+    <div id="news-modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4">
+        <div id="modal-overlay" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
+        <div id="modal-card" class="relative w-full max-w-3xl bg-white dark:bg-dark-card rounded-2xl shadow-2xl overflow-hidden scale-95 opacity-0 transition-all duration-300 max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <div id="modal-header" class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 overflow-hidden flex items-center justify-center">
+                        <img src="./src/logo.png" alt="Logo" class="w-full h-full object-contain">
+                    </div>
+                </div>
+                <button id="close-modal" class="text-slate-400 hover:text-rose-500 transition-colors">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+            
+            <!-- Modal Body (Scrollable) -->
+            <div id="modal-body" class="p-8 overflow-y-auto print:overflow-visible">
+                <!-- Data will be loaded here -->
+                <div id="modal-loading" class="flex flex-col items-center justify-center py-20 gap-4">
+                    <div class="spinner"></div>
+                    <p class="text-slate-400 animate-pulse font-medium">Mengambil isi berita...</p>
+                </div>
+                
+                <div id="modal-content" class="hidden space-y-6">
+                    <div id="print-area">
+                        <header class="print-header hidden">
+                            <div class="text-right text-xs">
+                                <p id="print-date" class="text-slate-500"></p>
+                            </div>
+                        </header>
+                        
+                        <div class="space-y-2">
+                            <div class="flex items-center gap-3 text-xs md:text-sm font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-widest">
+                                <span id="modal-media">-</span>
+                                <span>&bull;</span>
+                                <span id="modal-date">01 Jan 2024</span>
+                            </div>
+                            <h2 id="modal-title" class="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white leading-tight"></h2>
+                        </div>
+                        
+                        <div class="flex flex-wrap gap-2 py-4">
+                            <span id="modal-badge-pejabat" class="badge bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"></span>
+                            <span id="modal-badge-unit" class="badge bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"></span>
+                            <span id="modal-badge-sentimen" class="badge"></span>
+                        </div>
+                        
+                        <div id="modal-text" class="print-content text-sm text-justify leading-relaxed text-slate-700 dark:text-slate-300 max-w-none space-y-4">
+                            <!-- News Content -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-3 bg-slate-50 dark:bg-slate-800/50">
+                <button id="close-modal-btn" class="btn bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600">tutup</button>
+                <button id="print-news-btn" class="btn btn-primary">
+                    <i class="fas fa-print"></i> Cetak Berita
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Detail Tren -->
+    <div id="trend-detail-modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4">
+        <div id="trend-detail-overlay" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
+        <div id="trend-detail-card" class="relative w-full max-w-4xl bg-white dark:bg-dark-card rounded-2xl shadow-2xl overflow-hidden scale-95 opacity-0 transition-all duration-300 max-h-[85vh] flex flex-col">
+            <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <div>
+                    <h3 id="trend-detail-title" class="text-xl font-bold text-slate-800 dark:text-white">Detail Berita</h3>
+                    <p id="trend-detail-subtitle" class="text-sm text-slate-500 font-medium"></p>
+                </div>
+                <button id="close-trend-detail" class="text-slate-400 hover:text-rose-500 transition-colors">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+            <div id="trend-detail-body" class="p-6 overflow-y-auto space-y-4 bg-slate-50/30 dark:bg-slate-900/10">
+                <!-- List -->
+            </div>
+            <div class="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex justify-end">
+                <button id="close-trend-detail-btn" class="btn bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Login -->
+    <div id="login-modal" class="fixed inset-0 z-[100] hidden items-center justify-center p-4">
+        <div id="login-modal-overlay" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
+        <div id="login-modal-card" class="relative w-full max-w-md bg-white dark:bg-dark-card rounded-2xl shadow-2xl overflow-hidden scale-95 opacity-0 transition-all duration-300 flex flex-col">
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
+                <h3 class="text-xl font-bold flex items-center gap-2 text-slate-800 dark:text-white">
+                    <i class="fas fa-sign-in-alt text-blue-500"></i>
+                    Login
+                </h3>
+                <button id="close-login-modal" class="text-slate-400 hover:text-rose-500 transition-colors">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+            
+            <!-- Modal Body -->
+            <form id="login-form" class="p-8 space-y-6">
+                <div class="space-y-4">
+                    <div>
+                        <label for="login-email" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
+                        <div class="relative flex items-center">
+                            <i class="fas fa-envelope absolute left-3 text-slate-400"></i>
+                            <input type="email" id="login-email" required placeholder="admin@example.com" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="login-password" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Password</label>
+                        <div class="relative flex items-center">
+                            <i class="fas fa-lock absolute left-3 text-slate-400"></i>
+                            <input type="password" id="login-password" required placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg pl-10 pr-10 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none">
+                            <button type="button" onclick="togglePasswordVisibility()" class="absolute right-3 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                                <i class="fas fa-eye" id="toggle-password-icon"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="w-full btn btn-primary py-3 flex items-center justify-center gap-2">
+                    <i class="fas fa-sign-in-alt"></i> Masuk
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        // --- Constants & State ---
+        const DB_ROOT_URL = 'https://katakita-5b1d8-default-rtdb.asia-southeast1.firebasedatabase.app';
+        const DB_BASE_URL = `${DB_ROOT_URL}/newsList`;
+        
+        let OFFICIAL_MAPPING = {
+            "H. Budi Rustandi": { role: "Walikota Serang", color: "#87CEEB" },
+            "Nur Agis Aulia": { role: "Wakil Walikota Serang", color: "#FFD700" },
+            "Nanang Saefudin": { role: "Sekertaris Daerah Kota Serang", color: "#964B00" },
+            "Pejabat Lainnya": { role: "Pejabat Lainnya", color: "#808080" }
+        };
+        let MEDIA_MAPPING = {
+            "Kabar Banten": { shorthand: "KB", color: "#22c55e" },
+            "Radar Banten": { shorthand: "RB", color: "#1e3a8a" },
+            "Banten Raya": { shorthand: "BR", color: "#7f1d1d" }
+        };
+        let MEDIA_TARGET = Object.keys(MEDIA_MAPPING);
+        let MEDIA_SHORTHANDS = MEDIA_TARGET.map(m => MEDIA_MAPPING[m].shorthand);
+        
+        let allNewsData = []; // Array of { key, ...data }
+        let allUnitData = [];
+        let allOfficialData = [];
+        let allMediaData = [];
+        let filteredNewsData = [];
+        let detailFilteredData = [];
+        
+        let officialChartInstance = null;
+        let trendChartInstance = null;
+
+        /** Highlight Trend Line from Legend */
+        function highlightTrendLine(shorthand) {
+            if (!trendChartInstance) return;
+            trendChartInstance.data.datasets.forEach((ds, i) => {
+                const isActive = ds.label === shorthand;
+                ds.order = isActive ? 0 : (10 - i + 1);
+                ds.borderWidth = isActive ? 4 : 0.5;
+                ds.pointRadius = isActive ? 6 : 0;
+                ds.borderColor = isActive ? ds.borderColor : ds.borderColor.replace(')', ', 0.1)').replace('rgb', 'rgba');
+            });
+            trendChartInstance.update('none');
+        }
+
+        function resetTrendHighlight() {
+            if (!trendChartInstance) return;
+            trendChartInstance.data.datasets.forEach((ds, i) => {
+                ds.order = 10 - i;
+                ds.borderWidth = 2;
+                ds.pointRadius = 4;
+                // Clean up any rgba transparency
+                if (ds.borderColor.includes('rgba')) {
+                    ds.borderColor = ds.borderColor.split(',')[0].replace('rgba', 'rgb') + ')';
+                }
+            });
+            trendChartInstance.update('none');
+        }
+
+        // Pagination States
+        let newsPageSize = 10;
+        let newsCurrentPage = 1;
+        let detailPageSize = 10;
+        let detailCurrentPage = 1;
+
+        // Sorting Logic
+        let currentSort = { column: 'date', direction: 'desc' };
+
+        let lastScrollPosition = 0;
+
+        /** Navigation Logic */
+        window.navigateTo = function(pageId, restoreScroll = false) {
+            // Save scroll position if we are leaving the dashboard
+            if (document.getElementById('page-dashboard').classList.contains('hidden') === false && pageId !== 'dashboard') {
+                lastScrollPosition = window.scrollY;
+            }
+
+            // Hide all pages
+            document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
+            
+            // Show target page
+            const targetPage = document.getElementById(`page-${pageId}`);
+            if (targetPage) {
+                targetPage.classList.remove('hidden');
+                
+                // CRITICAL: Re-render charts when returning to dashboard to ensure layout is correct
+                if (pageId === 'dashboard' && typeof renderCharts === 'function') {
+                    // Use a slightly longer delay to ensure the container is fully visible and has stable dimensions
+                    // also use requestAnimationFrame as double insurance
+                    setTimeout(() => {
+                        requestAnimationFrame(() => {
+                            renderCharts();
+                        });
+                    }, 150);
+                }
+
+                if (restoreScroll && pageId === 'dashboard') {
+                    // Use setTimeout to ensure the DOM has updated and layout is stable
+                    setTimeout(() => {
+                        window.scrollTo({ top: lastScrollPosition, behavior: 'auto' });
+                    }, 0);
+                } else {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            }
+        }
+
+        // --- Core Functions ---
+
+        let isInitialized = false;
+
+        /** Initialize the app */
+        async function init() {
+            if (isInitialized) return;
+            isInitialized = true;
+            setupTheme();
+            setupEventListeners();
+            await fetchData();
+        }
+
+        /** Setup Dark/Light Theme */
+        function setupTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        }
+
+        /** Toggle Theme */
+        function toggleTheme() {
+            const isDark = document.documentElement.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            // Refresh charts colors after theme change
+            renderCharts();
+        }
+
+        /** Date Helpers */
+        function toDateKey(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function toMonthKey(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            return `${y}-${m}`;
+        }
+
+        function getSunday(date) {
+            const d = new Date(date);
+            const day = d.getDay(), diff = d.getDate() - day;
+            d.setDate(diff);
+            d.setHours(0,0,0,0);
+            return d;
+        }
+
+        /** Fetch data from Firebase */
+        async function fetchData() {
+            try {
+                let rawNews, rawUnit, rawOfficial, rawMedia;
+                
+                if (window.fetchFirebaseData) {
+                    [rawNews, rawUnit, rawOfficial, rawMedia] = await Promise.all([
+                        window.fetchFirebaseData('newsList'),
+                        window.fetchFirebaseData('unitKerja'),
+                        window.fetchFirebaseData('pejabat'),
+                        window.fetchFirebaseData('mediaList')
+                    ]);
+                } else {
+                    const ts = new Date().getTime();
+                    const fetchNode = async (node) => {
+                        const res = await fetch(`${DB_ROOT_URL}/${node}.json?_t=${ts}`);
+                        return res.json();
+                    };
+                    [rawNews, rawUnit, rawOfficial, rawMedia] = await Promise.all([
+                        fetchNode('newsList'),
+                        fetchNode('unitKerja'),
+                        fetchNode('pejabat'),
+                        fetchNode('mediaList')
+                    ]);
+                }
+
+                const normMedia = (m) => {
+                    if(!m) return "Lainnya";
+                    let c = m.toLowerCase().replace(/\s+/g, '');
+                    if(c.includes("kabarbanten")) return "Kabar Banten";
+                    if(c.includes("radarbanten")) return "Radar Banten";
+                    if(c.includes("bantenraya")) return "Banten Raya";
+                    return m.trim();
+                };
+
+                allNewsData = rawNews ? Object.keys(rawNews).map(k => {
+                    const n = rawNews[k];
+                    const d = parseDate(n.tanggal_raw);
+                    return { 
+                        key: k, 
+                        ...n, 
+                        mNorm: normMedia(n.media),
+                        tMingguKey: toDateKey(getSunday(d)),
+                        tBulanKey: toMonthKey(d)
+                    };
+                }).sort((a,b) => (b.tanggal_raw||0) - (a.tanggal_raw||0)) : [];
+                
+                allUnitData = rawUnit ? Object.keys(rawUnit).map(k => {
+                    const val = rawUnit[k];
+                    return (typeof val === 'string') ? { key: k, unit: val, nama: val } : { key: k, ...val };
+                }) : [];
+                allOfficialData = rawOfficial ? Object.keys(rawOfficial).map(k => {
+                    const val = rawOfficial[k];
+                    return (typeof val === 'string') ? { key: k, nama: val } : { key: k, ...val };
+                }) : [];
+                allMediaData = rawMedia ? Object.keys(rawMedia).map(k => ({ key: k, ...rawMedia[k] })) : [];
+
+                // 2. Extend Mappings based on database
+                allOfficialData.forEach(o => {
+                    const name = o.nama || o.name || o.nama_pejabat;
+                    if (name && !OFFICIAL_MAPPING[name]) {
+                        OFFICIAL_MAPPING[name] = { 
+                            role: o.jabatan || o.role || "", 
+                            color: `hsl(${Math.abs(name.split('').reduce((a, b) => (a << 5) - a + b.charCodeAt(0), 0)) % 360}, 70%, 50%)`
+                        };
+                    }
+                });
+
+                allMediaData.forEach(m => {
+                    const name = m.nama || m.name;
+                    if (name && !MEDIA_MAPPING[name]) {
+                        MEDIA_MAPPING[name] = {
+                            shorthand: name.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 3),
+                            color: `hsl(${Math.abs(name.split('').reduce((a, b) => (a << 5) - a + b.charCodeAt(0), 0)) % 360}, 65%, 45%)`
+                        };
+                    }
+                });
+                
+                MEDIA_TARGET = Object.keys(MEDIA_MAPPING);
+                MEDIA_SHORTHANDS = MEDIA_TARGET.map(m => MEDIA_MAPPING[m].shorthand);
+
+                filteredNewsData = [...allNewsData];
+                processAndRender();
+
+            } catch (error) {
+                console.error("fetchData Error:", error);
+                if (window.showEmptyStates) {
+                    window.showEmptyStates(true);
+                } else {
+                    showEmptyStates(true);
+                }
+            }
+        }
+
+        /** Process raw data for stats, charts, and tables */
+        function processAndRender() {
+            updateStats();
+            renderCharts();
+            updateNewsList();
+            updateCustomLegend();
+        }
+
+        function updateCustomLegend() {
+            const legendContainer = document.getElementById('custom-legend');
+            if (!legendContainer) return;
+
+            legendContainer.innerHTML = MEDIA_TARGET.map(media => {
+                const info = MEDIA_MAPPING[media];
+                return `
+                    <div class="flex items-center gap-2 cursor-pointer hover:opacity-100 opacity-70 transition-all group" 
+                         onclick="filterByParam('media', 'Media: ${media}', '${media}')"
+                         onmouseover="highlightTrendLine('${info.shorthand}')" onmouseout="resetTrendHighlight()">
+                        <div class="w-4 h-4 rounded-full" style="background-color: ${info.color}"></div>
+                        <span class="text-sm font-bold text-slate-700 dark:text-slate-300 group-hover:text-blue-600 transition-colors uppercase tracking-tight">${info.shorthand}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        /** Update Stats Cards */
+        function updateStats() {
+            const total = allNewsData.length;
+            const positive = allNewsData.filter(n => n.potensi === 'Positif').length;
+            const neutral = allNewsData.filter(n => n.potensi === 'Netral').length;
+            const negative = allNewsData.filter(n => n.potensi === 'Negatif').length;
+
+            const createStatHTML = (title, count, icon, colorClass) => `
+                <div class="flex items-center gap-4">
+                    <div class="p-3 ${colorClass} bg-opacity-10 rounded-xl text-2xl ${colorClass.replace('bg-', 'text-')}">
+                        <i class="fas ${icon}"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">${title}</p>
+                        <p class="text-3xl font-extrabold">${count.toLocaleString()}</p>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('stat-total').className = "stat-card border-l-blue-500 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 text-blue-600 dark:text-blue-400 transition-all hover:shadow-md hover:-translate-y-1";
+            document.getElementById('stat-total').innerHTML = createStatHTML('Total Berita', total, 'fa-globe', 'bg-blue-500');
+            document.getElementById('stat-total').onclick = () => window.handleStatClick('total');
+
+            document.getElementById('stat-positive').className = "stat-card border-l-emerald-500 cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 transition-all hover:shadow-md hover:-translate-y-1";
+            document.getElementById('stat-positive').innerHTML = createStatHTML('Positif', positive, 'fa-smile', 'bg-emerald-500');
+            document.getElementById('stat-positive').onclick = () => window.handleStatClick('positive');
+
+            document.getElementById('stat-neutral').className = "stat-card border-l-slate-400 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 transition-all hover:shadow-md hover:-translate-y-1";
+            document.getElementById('stat-neutral').innerHTML = createStatHTML('Netral', neutral, 'fa-meh', 'bg-slate-400');
+            document.getElementById('stat-neutral').onclick = () => window.handleStatClick('neutral');
+
+            document.getElementById('stat-negative').className = "stat-card border-l-rose-500 cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 transition-all hover:shadow-md hover:-translate-y-1";
+            document.getElementById('stat-negative').innerHTML = createStatHTML('Negatif', negative, 'fa-frown', 'bg-rose-500');
+            document.getElementById('stat-negative').onclick = () => window.handleStatClick('negative');
+        }
+
+        /** Chart Logic */
+        function renderCharts() {
+            try {
+                if (allNewsData.length === 0) return;
+                
+                // Ensure target element exists and is visible
+                const chartCanvas = document.getElementById('official-chart');
+                if (!chartCanvas) return;
+
+                const isDarkMode = document.body.classList.contains('dark');
+                const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+                const gridColor = isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+
+                // 1. Doughnut Chart: Officials
+                const roleCounts = {
+                    "Walikota Serang": 0,
+                    "Wakil Walikota Serang": 0,
+                    "Sekertaris Daerah Kota Serang": 0
+                };
+                
+                Object.values(OFFICIAL_MAPPING).forEach(m => {
+                    if (m.role && !roleCounts.hasOwnProperty(m.role) && m.role !== 'Pejabat Lainnya') {
+                        roleCounts[m.role] = 0;
+                    }
+                });
+                roleCounts["Pejabat Lainnya"] = 0;
+
+                allNewsData.forEach(n => {
+                    const primaryRole = getPrimaryRole(n.pejabat);
+                    
+                    if (roleCounts.hasOwnProperty(primaryRole)) {
+                        roleCounts[primaryRole]++;
+                    } else {
+                        roleCounts["Pejabat Lainnya"]++;
+                    }
+                });
+
+                if (officialChartInstance) officialChartInstance.destroy();
+                const ctxOfficial = document.getElementById('official-chart').getContext('2d');
+                
+                const officialLabels = Object.keys(roleCounts);
+                const officialColors = officialLabels.map(label => {
+                    if (label === "Pejabat Lainnya") return "#64748b";
+                    const m = Object.values(OFFICIAL_MAPPING).find(v => v.role === label);
+                    return m ? m.color : "#64748b";
+                });
+
+                // Check for ChartDataLabels plugin
+                const plugins = [];
+                if (typeof ChartDataLabels !== 'undefined') {
+                    plugins.push(ChartDataLabels);
+                }
+
+                officialChartInstance = new Chart(ctxOfficial, {
+                    type: 'doughnut',
+                    plugins: plugins,
+                    data: {
+                    labels: officialLabels,
+                    datasets: [{
+                        data: Object.values(roleCounts),
+                        backgroundColor: officialColors,
+                        borderWidth: 2,
+                        borderColor: isDarkMode ? '#1e293b' : '#fff',
+                        hoverOffset: 15
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: 20
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { 
+                                color: textColor, 
+                                font: { family: 'Poppins', size: 10 },
+                                boxWidth: 10,
+                                padding: 10
+                            }
+                        },
+                        datalabels: {
+                            color: '#1e293b',
+                            font: { weight: '900', family: 'Poppins', size: 12 },
+                            formatter: (value) => {
+                                return value > 0 ? value : '';
+                            },
+                        },
+                        tooltip: { 
+                            backgroundColor: '#1e293b', 
+                            titleFont: { family: 'Poppins' }, 
+                            bodyFont: { family: 'Poppins', weight: 'bold', size: 14 },
+                            padding: 12,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            callbacks: {
+                                title: () => '',
+                                label: function(context) {
+                                    const value = context.raw || 0;
+                                    const sum = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    if (sum === 0) return '0%';
+                                    const percentage = (value * 100 / sum).toFixed(0) + "%";
+                                    return percentage;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '60%',
+                    onClick: (evt, elements) => {
+                        if (elements.length > 0) {
+                            const index = elements[0].index;
+                            const label = officialChartInstance.data.labels[index];
+                            if(window.handleOfficialClick) window.handleOfficialClick(label);
+                        }
+                    }
+                }
+            });
+
+            // 2. Line Chart: Media Trend
+            renderTrendChart();
+            } catch (err) {
+                console.error("Error rendering charts:", err);
+            }
+        }
+
+        function renderTrendChart() {
+            try {
+                const chartCanvas = document.getElementById('trend-chart');
+                if (!chartCanvas) return;
+                
+                const filterType = document.getElementById('trend-filter').value;
+                const isDarkMode = document.body.classList.contains('dark');
+                const textColor = isDarkMode ? '#cbd5e1' : '#475569';
+                const gridColor = isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+
+                // 1. Get Date Range
+                const validDates = allNewsData
+                    .map(n => parseDate(n.tanggal_raw))
+                    .filter(d => d.getTime() > 0)
+                    .sort((a, b) => a - b);
+                
+                if (validDates.length === 0) return;
+                
+                const minDate = new Date(validDates[0]);
+                const maxDate = new Date(); // Use today as end or max in data
+                
+                // 2. Generate Continuous Timeline Keys
+                const timelineData = {};
+                const sortedKeys = [];
+                
+                let curr = new Date(minDate);
+                if (filterType === 'weekly') {
+                    // Set to Sunday of the week
+                    curr = getSunday(curr);
+                    
+                    const end = new Date(maxDate);
+                    while (curr <= end) {
+                        const key = toDateKey(curr);
+                        timelineData[key] = {};
+                        MEDIA_SHORTHANDS.forEach(s => timelineData[key][s] = 0);
+                        sortedKeys.push(key);
+                        curr.setDate(curr.getDate() + 7);
+                    }
+                } else {
+                    curr.setDate(1);
+                    curr.setHours(0,0,0,0);
+                    const end = new Date(maxDate);
+                    while (curr <= end) {
+                        const key = toMonthKey(curr);
+                        timelineData[key] = {};
+                        MEDIA_SHORTHANDS.forEach(s => timelineData[key][s] = 0);
+                        sortedKeys.push(key);
+                        curr.setMonth(curr.getMonth() + 1);
+                    }
+                }
+
+                // 3. Aggregate Data
+                allNewsData.forEach(n => {
+                    const mediaName = n.mNorm;
+                    if (!MEDIA_TARGET.includes(mediaName)) return;
+                    
+                    let timeKey = (filterType === 'weekly') ? n.tMingguKey : n.tBulanKey;
+
+                    if (timelineData[timeKey]) {
+                        const shorthand = MEDIA_MAPPING[mediaName].shorthand;
+                        timelineData[timeKey][shorthand]++;
+                    }
+                });
+
+                // 4. Generate Labels
+                const mths = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+                const labels = sortedKeys.map(k => {
+                    const date = new Date(k);
+                    if (filterType === 'monthly') {
+                        return `${mths[date.getMonth()]} ${date.getFullYear()}`;
+                    }
+                    // Sunday - Saturday Style Range Label
+                    const s = new Date(date);
+                    const e = new Date(s);
+                    e.setDate(s.getDate() + 6);
+                    return `${s.getDate()} ${mths[s.getMonth()]} - ${e.getDate()} ${mths[e.getMonth()]} '${String(e.getFullYear()).slice(2)}`;
+                });
+
+                // 5. Build Datasets
+                const datasets = MEDIA_SHORTHANDS.map((shorthand, idx) => {
+                    const mediaMappingKey = MEDIA_TARGET.find(key => MEDIA_MAPPING[key].shorthand === shorthand);
+                    const mediaColor = MEDIA_MAPPING[mediaMappingKey].color;
+                    return {
+                        label: shorthand,
+                        data: sortedKeys.map(k => timelineData[k][shorthand]),
+                        borderColor: mediaColor,
+                        backgroundColor: mediaColor,
+                        fill: false,
+                        tension: 0.4,
+                        pointRadius: (ctx) => ctx.raw === 0 ? 0 : 4, 
+                        pointHoverRadius: (ctx) => ctx.raw === 0 ? 0 : 6,
+                        borderWidth: 2,
+                        hoverBorderWidth: 5, 
+                        hoverBorderColor: mediaColor,
+                        spanGaps: true,
+                        order: 10 - idx
+                    };
+                });
+
+                if (trendChartInstance) trendChartInstance.destroy();
+
+                // Dynamic Width logic: If many data points, expand width to allow scrolling
+                const container = document.getElementById('trend-chart-container');
+                const minPointWidth = filterType === 'weekly' ? 60 : 100; 
+                const calculatedWidth = Math.max(container.parentElement.clientWidth, labels.length * minPointWidth);
+                container.style.width = calculatedWidth + 'px';
+
+                const ctxTrend = document.getElementById('trend-chart').getContext('2d');
+
+                const options = {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    onHover: (event, chartElement) => {
+                        const chart = trendChartInstance;
+                        if (!chart) return;
+                        
+                        if (chartElement.length > 0) {
+                            const mousePos = Chart.helpers.getRelativePosition(event, chart);
+                            let closestIndex = 0;
+                            let minDistance = Infinity;
+
+                            chartElement.forEach(el => {
+                                const dist = Math.abs(el.element.y - mousePos.y);
+                                if (dist < minDistance) {
+                                    minDistance = dist;
+                                    closestIndex = el.datasetIndex;
+                                }
+                            });
+
+                            chart.data.datasets.forEach((ds, i) => {
+                                const isClosest = (i === closestIndex);
+                                ds.order = isClosest ? 0 : (10 - i + 1);
+                                ds.borderWidth = isClosest ? 4 : 1; 
+                                ds.pointRadius = isClosest ? 6 : 2;
+                            });
+                        } else {
+                            chart.data.datasets.forEach((ds, i) => {
+                                ds.order = 10 - i;
+                                ds.borderWidth = 2;
+                                ds.pointRadius = 4;
+                            });
+                        }
+                        chart.update('none');
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { 
+                            backgroundColor: '#1e293b',
+                            intersect: false,
+                            mode: 'index',
+                            callbacks: {
+                                title: (items) => {
+                                    if (!items.length) return '';
+                                    const item = items[0];
+                                    if (filterType === 'weekly') {
+                                        const start = new Date(sortedKeys[item.dataIndex]);
+                                        const end = new Date(start);
+                                        end.setDate(end.getDate() + 6);
+                                        return `Minggu: ${start.toLocaleDateString('id-ID', {day:'numeric', month:'short'})} - ${end.toLocaleDateString('id-ID', {day:'numeric', month:'short', year:'numeric'})}`;
+                                    }
+                                    return item.label;
+                                },
+                                label: (context) => {
+                                    let label = context.dataset.label || '';
+                                    if (label) label += ': ';
+                                    if (context.parsed.y !== null) {
+                                        label += Math.round(context.parsed.y) + ' Berita'; 
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            display: true, 
+                            ticks: { 
+                                color: textColor,
+                                font: { size: window.innerWidth < 768 ? 8 : 10 },
+                                maxRotation: 0,
+                                minRotation: 0
+                            }, 
+                            grid: { display: false } 
+                        },
+                        y: { 
+                            display: true, 
+                            beginAtZero: true,
+                            suggestedMax: 5,
+                            ticks: { 
+                                color: textColor,
+                                stepSize: 1, 
+                                precision: 0,
+                                callback: function(value) {
+                                    if (value % 1 === 0) return value;
+                                }
+                            }, 
+                            grid: { color: gridColor, drawBorder: false, drawTicks: false }
+                        }
+                    },
+                    onClick: (evt, elements) => {
+                        if (elements.length > 0) {
+                            const datasetIndex = elements[0].datasetIndex;
+                            const dataIndex = elements[0].index;
+                            const shorthand = datasets[datasetIndex].label;
+                            const timeKey = sortedKeys[dataIndex];
+                            if(window.handleMediaTrendClick) window.handleMediaTrendClick(shorthand, timeKey, filterType);
+                        }
+                    }
+                };
+
+                trendChartInstance = new Chart(ctxTrend, {
+                    type: 'line',
+                    data: { labels, datasets },
+                    options: options
+                });
+            } catch (err) {
+                console.error("Error rendering trend chart:", err);
+            }
+        }
+
+        /** Main News List Rendering */
+        function updateNewsList() {
+            const tbody = document.getElementById('news-list-body');
+            const searchVal = document.getElementById('news-search').value.toLowerCase();
+            
+            // Filter initially shown data by search
+            filteredNewsData = allNewsData.filter(n => 
+                (n.judul || '').toLowerCase().includes(searchVal) ||
+                (n.media || '').toLowerCase().includes(searchVal) ||
+                (n.potensi || '').toLowerCase().includes(searchVal) ||
+                (n.tanggal || '').toLowerCase().includes(searchVal) ||
+                (n.unit || '').toLowerCase().includes(searchVal) ||
+                (n.userEmail || '').toLowerCase().includes(searchVal) ||
+                (Array.isArray(n.pejabat) ? n.pejabat.join(' ') : (n.pejabat || '')).toLowerCase().includes(searchVal)
+            );
+
+            // Pagination logic
+            const currentSize = newsPageSize === 'all' ? filteredNewsData.length : parseInt(newsPageSize);
+            const totalPages = Math.ceil(filteredNewsData.length / currentSize) || 1;
+            if (newsCurrentPage > totalPages) newsCurrentPage = totalPages;
+
+            const startIdx = (newsCurrentPage - 1) * currentSize;
+            const paginatedData = filteredNewsData.slice(startIdx, startIdx + currentSize);
+
+            tbody.innerHTML = paginatedData.map(news => {
+                const borderAccent = news.potensi === 'Positif' ? 'bg-emerald-500' : news.potensi === 'Negatif' ? 'bg-rose-500' : 'bg-slate-400';
+                
+                return `
+                <div class="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-5 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group flex flex-col gap-3 relative overflow-hidden" onclick="window.handleRecentNewsClick('${news.key}')">
+                    <div class="absolute left-0 top-0 bottom-0 w-1.5 ${borderAccent}"></div>
+                    <div class="flex items-center gap-3 pl-1">
+                        <span class="badge ${getSentimenClass(news.potensi)}">${news.potensi}</span>
+                        <span class="text-xs font-bold text-slate-500 dark:text-slate-400 tracking-widest">${formatDate(news.tanggal_raw)}</span>
+                    </div>
+                    <div class="font-bold text-slate-900 dark:text-white group-hover:text-blue-500 transition-colors leading-relaxed text-[15px] pl-1">
+                        ${news.judul}
+                    </div>
+                </div>
+            `}).join('');
+
+            if (paginatedData.length === 0) {
+                tbody.innerHTML = `<div class="p-8 text-center text-slate-400 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl">Tidak ada berita ditemukan.</div>`;
+            }
+
+            renderPagination('news', newsCurrentPage, totalPages);
+        }
+
+        /** Detail Table Filtering & Rendering */
+        function filterByParam(field, label, value) {
+            const labelEl = document.getElementById('filter-label');
+            let color = '#3b82f6'; // default blue
+            
+            // Clean the label (remove "Detail: " or "Media: " prefix if present)
+            const displayLabel = label.replace(/^(Detail: |Media: |Sentimen )/, '');
+            
+            // Determine Color
+            if (field === 'potensi' && value) {
+                if (value === 'Positif') color = '#10b981';
+                if (value === 'Netral') color = '#94a3b8';
+                if (value === 'Negatif') color = '#f43f5e';
+            } else if (field === 'pejabat_role') {
+                if (value === 'lainnya') {
+                    color = '#64748b';
+                } else {
+                    const m = Object.values(OFFICIAL_MAPPING).find(v => v.role === value);
+                    if (m) color = m.color;
+                }
+            } else if (field === 'media') {
+                if (MEDIA_MAPPING[value]) color = MEDIA_MAPPING[value].color;
+            }
+
+            // Create Visual Label with Color Code
+            labelEl.innerHTML = `
+                <span class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm animate-in fade-in slide-in-from-left-2">
+                    <span class="w-3 h-3 rounded-full" style="background-color: ${color}; box-shadow: 0 0 8px ${color}66;"></span>
+                    <span class="text-slate-700 dark:text-slate-200 font-bold">${displayLabel}</span>
+                </span>
+            `;
+            
+            navigateTo('detail');
+            
+            // Filter logic
+            if (value === null) {
+                detailFilteredData = [...allNewsData];
+            } else if (value === "lainnya" && field === 'pejabat_role') {
+                detailFilteredData = allNewsData.filter(n => getPrimaryRole(n.pejabat) === "Pejabat Lainnya");
+            } else if (field === 'pejabat_role') {
+                detailFilteredData = allNewsData.filter(n => getPrimaryRole(n.pejabat) === value);
+            } else {
+                detailFilteredData = allNewsData.filter(n => n[field] === value);
+            }
+
+            // Reset sorting to default
+            currentSort = { column: 'date', direction: 'desc' };
+            detailCurrentPage = 1;
+            
+            updateDetailTable();
+        }
+
+        function updateDetailTable() {
+            const tbody = document.getElementById('detail-list-body');
+            const searchVal = document.getElementById('detail-search').value.toLowerCase();
+            
+            // 1. Search filter
+            let data = detailFilteredData.filter(n => 
+                (n.judul || '').toLowerCase().includes(searchVal) ||
+                (n.media || '').toLowerCase().includes(searchVal) ||
+                (n.potensi || '').toLowerCase().includes(searchVal) ||
+                (n.tanggal || '').toLowerCase().includes(searchVal) ||
+                (n.unit || n.unitkerja || '').toLowerCase().includes(searchVal) ||
+                (n.userEmail || '').toLowerCase().includes(searchVal) ||
+                (Array.isArray(n.pejabat) ? n.pejabat.join(' ') : (n.pejabat || '')).toLowerCase().includes(searchVal)
+            );
+
+            // 2. Sorting
+            data.sort((a, b) => {
+                let valA, valB;
+                switch(currentSort.column) {
+                    case 'no': valA = a.key; valB = b.key; break;
+                    case 'media': valA = a.media; valB = b.media; break;
+                    case 'date': 
+                        valA = parseDate(a.tanggal_raw).getTime(); 
+                        valB = parseDate(b.tanggal_raw).getTime(); 
+                        break;
+                    case 'official': valA = a.pejabat; valB = b.pejabat; break;
+                    case 'potensi': valA = a.potensi; valB = b.potensi; break;
+                    case 'title': valA = a.judul; valB = b.judul; break;
+                    default: return 0;
+                }
+                if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // 3. Pagination
+            const totalPages = Math.ceil(data.length / detailPageSize) || 1;
+            if (detailCurrentPage > totalPages) detailCurrentPage = totalPages;
+            const paginated = data.slice((detailCurrentPage - 1) * detailPageSize, detailCurrentPage * detailPageSize);
+
+            tbody.innerHTML = paginated.map((news, idx) => {
+                const pejabatArray = Array.isArray(news.pejabat) ? news.pejabat : (news.pejabat ? [news.pejabat] : []);
+                const officialHTML = pejabatArray.length > 0 ? pejabatArray.map(pName => {
+                    const m = getOfficialMapping(pName);
+                    const rLabel = m ? m.role : '';
+                    return `
+                        <div class="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-800/60 px-2 py-1.5 rounded-md border border-slate-200 dark:border-slate-700">
+                            <i class="fas fa-user text-[10px] text-blue-500 shrink-0"></i>
+                            <span class="font-medium text-slate-700 dark:text-slate-300 break-words flex-1 min-w-[50px] leading-snug">${pName}</span>
+                            ${rLabel ? `<span class="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider break-words text-center leading-tight mt-0.5">${rLabel}</span>` : ''}
+                        </div>
+                    `;
+                }).join('') : `<span class="text-slate-400">-</span>`;
+
+                const borderAccent = news.potensi === 'Positif' ? 'bg-emerald-500' : news.potensi === 'Negatif' ? 'bg-rose-500' : 'bg-slate-400';
+                
+                return `
+                <div class="bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-5 hover:border-blue-400 dark:hover:border-blue-500 hover:shadow-md transition-all cursor-pointer group flex flex-col sm:flex-row gap-5 items-start sm:items-center relative overflow-hidden" onclick="window.handleRecentNewsClick('${news.key}')">
+                    <div class="absolute left-0 top-0 bottom-0 w-1.5 ${borderAccent}"></div>
+                    
+                    <div class="flex-1 flex flex-col gap-3 pl-1">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="badge ${getSentimenClass(news.potensi)} scale-90 -ml-1">${news.potensi}</span>
+                            <span class="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">${news.media}</span>
+                            <span class="text-[11px] font-bold text-slate-500 dark:text-slate-400 tracking-widest ml-1">${formatDate(news.tanggal_raw)}</span>
+                        </div>
+                        
+                        <div class="font-bold text-slate-900 dark:text-slate-100 leading-relaxed text-[15px] group-hover:text-blue-600 transition-colors cursor-pointer">
+                            ${news.judul}
+                        </div>
+                        
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            ${officialHTML}
+                        </div>
+                    </div>
+                    
+                    <div class="flex flex-row justify-end items-center gap-2 w-full sm:w-auto pt-4 sm:pt-0 border-t sm:border-t-0 border-slate-200 dark:border-slate-700/60 mt-2 sm:mt-0">
+                        <button onclick="event.stopPropagation(); window.handleRecentNewsClick('${news.key}')" class="p-2 sm:p-2.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-full transition-all" title="Baca Berita">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); printDirect('${news.key}')" class="p-2 sm:p-2.5 text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-full transition-all" title="Cetak Berita">
+                            <i class="fas fa-print"></i>
+                        </button>
+                    </div>
+                </div>
+                `}).join('');
+
+            if (paginated.length === 0) {
+                tbody.innerHTML = `<div class="p-12 text-center text-slate-400 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl">Tidak ada data ditemukan dalam filter ini.</div>`;
+            }
+
+            document.getElementById('detail-info').innerText = `Menampilkan ${Math.min(data.length, detailPageSize)} dari ${data.length} berita`;
+            renderPagination('detail', detailCurrentPage, totalPages);
+            updateSortIcons();
+        }
+
+        /** Pagination Component */
+        function renderPagination(type, current, total) {
+            const container = document.getElementById(`${type}-pagination-controls`);
+            let html = '';
+            
+            // Prev Button
+            html += `<button onclick="changePage('${type}', ${current - 1})" ${current === 1 ? 'disabled' : ''} class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i class="fas fa-chevron-left text-xs"></i>
+            </button>`;
+
+            // Minimalist Page numbers
+            const start = Math.max(1, current - 1);
+            const end = Math.min(total, start + 2);
+            for(let i = start; i <= end; i++) {
+                html += `<button onclick="changePage('${type}', ${i})" class="w-8 h-8 rounded-lg text-sm font-semibold transition-all ${i === current ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400'}">${i}</button>`;
+            }
+
+            // Next Button
+            html += `<button onclick="changePage('${type}', ${current + 1})" ${current === total ? 'disabled' : ''} class="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i class="fas fa-chevron-right text-xs"></i>
+            </button>`;
+
+            container.innerHTML = html;
+        }
+
+        function changePage(type, page) {
+            if (type === 'news') {
+                newsCurrentPage = page;
+                updateNewsList();
+            } else {
+                detailCurrentPage = page;
+                updateDetailTable();
+            }
+        }
+
+        /** Modal logic with Lazy Loading Content */
+        /** Chart Detail Handlers */
+        window.handleMediaTrendClick = function(shorthand, timeKey, filterType) {
+            const mediaMappingKey = MEDIA_TARGET.find(key => MEDIA_MAPPING[key].shorthand === shorthand);
+            if (!mediaMappingKey) return;
+
+            let filtered;
+            let displayTime;
+            const mths = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+            
+            if (filterType === 'weekly') {
+                const parts = timeKey.split('-');
+                const start = new Date(parts[0], parts[1]-1, parts[2]);
+                const end = new Date(start);
+                end.setDate(end.getDate() + 6);
+                displayTime = `${start.getDate()} ${mths[start.getMonth()]} - ${end.getDate()} ${mths[end.getMonth()]} '${String(end.getFullYear()).slice(2)}`;
+                
+                filtered = allNewsData.filter(n => n.mNorm === mediaMappingKey && n.tMingguKey === timeKey);
+            } else {
+                const parts = timeKey.split('-');
+                const date = new Date(parts[0], parts[1]-1, 1);
+                displayTime = `${mths[date.getMonth()]} ${date.getFullYear()}`;
+                filtered = allNewsData.filter(n => n.mNorm === mediaMappingKey && n.tBulanKey === timeKey);
+            }
+
+            // Redirect to Page Detail instead of Modal
+            const labelEl = document.getElementById('filter-label');
+            const mediaColor = MEDIA_MAPPING[mediaMappingKey] ? MEDIA_MAPPING[mediaMappingKey].color : '#3b82f6';
+            
+            labelEl.innerHTML = `
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    <span class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <span class="w-3 h-3 rounded-full" style="background-color: ${mediaColor}; box-shadow: 0 0 8px ${mediaColor}66;"></span>
+                        <span class="text-slate-700 dark:text-slate-200 font-bold">${mediaMappingKey}</span>
+                    </span>
+                    <span class="text-slate-500 font-medium text-sm flex items-center gap-1">
+                        <i class="far fa-calendar-alt"></i> ${displayTime}
+                    </span>
+                </div>
+            `;
+            
+            detailFilteredData = filtered;
+            currentSort = { column: 'date', direction: 'desc' };
+            detailCurrentPage = 1;
+            
+            navigateTo('detail');
+            updateDetailTable();
+        };
+
+        const closeTrendDetail = () => {
+            const modal = document.getElementById('trend-detail-modal');
+            const overlay = document.getElementById('trend-detail-overlay');
+            const card = document.getElementById('trend-detail-card');
+            overlay.style.opacity = '0';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.95)';
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        };
+
+        if (document.getElementById('close-trend-detail')) document.getElementById('close-trend-detail').onclick = closeTrendDetail;
+        if (document.getElementById('close-trend-detail-btn')) document.getElementById('close-trend-detail-btn').onclick = closeTrendDetail;
+        if (document.getElementById('trend-detail-overlay')) document.getElementById('trend-detail-overlay').onclick = closeTrendDetail;
+
+        window.handleOfficialClick = function(roleName) {
+            const filtered = allNewsData.filter(n => {
+                const mapping = getOfficialMapping(n.pejabat);
+                const role = mapping ? mapping.role : "Pejabat Lainnya";
+                return role === roleName;
+            });
+
+            // Redirect to Page Detail instead of Modal
+            const labelEl = document.getElementById('filter-label');
+            let roleColor = '#3b82f6';
+            if (roleName === 'Pejabat Lainnya') {
+                roleColor = '#64748b';
+            } else {
+                const m = Object.values(OFFICIAL_MAPPING).find(v => v.role === roleName);
+                if (m) roleColor = m.color;
+            }
+
+            labelEl.innerHTML = `
+                <span class="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+                    <span class="w-3 h-3 rounded-full" style="background-color: ${roleColor}; box-shadow: 0 0 8px ${roleColor}66;"></span>
+                    <span class="text-slate-700 dark:text-slate-200 font-bold">${roleName}</span>
+                </span>
+            `;
+
+            detailFilteredData = filtered;
+            currentSort = { column: 'date', direction: 'desc' };
+            detailCurrentPage = 1;
+
+            navigateTo('detail');
+            updateDetailTable();
+        };
+
+        async function openNewsModal(key) {
+            const modal = document.getElementById('news-modal');
+            const overlay = document.getElementById('modal-overlay');
+            const card = document.getElementById('modal-card');
+            const loading = document.getElementById('modal-loading');
+            const content = document.getElementById('modal-content');
+            
+            // Find news info from cached array
+            const news = allNewsData.find(n => n.key === key);
+            if(!news) return;
+
+            // Show Modal
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            requestAnimationFrame(() => {
+                overlay.style.opacity = '1';
+                card.style.opacity = '1';
+                card.style.transform = 'scale(1)';
+            });
+
+            // Set Basic Info
+            const pejabatArray = Array.isArray(news.pejabat) ? news.pejabat : (news.pejabat ? [news.pejabat] : []);
+            const displayOfficialList = pejabatArray.map(p => {
+                const m = getOfficialMapping(p);
+                return m ? `${p} (${m.role})` : p;
+            });
+            const displayOfficial = displayOfficialList.length > 0 ? displayOfficialList.join(', ') : '-';
+
+            document.getElementById('modal-title').innerText = news.judul;
+            document.getElementById('modal-media').innerText = news.media;
+            document.getElementById('modal-date').innerText = formatDate(news.tanggal_raw);
+            document.getElementById('modal-badge-pejabat').innerText = displayOfficial;
+            document.getElementById('modal-badge-unit').innerText = news.unit || news.unitkerja || '-';
+            document.getElementById('modal-badge-sentimen').innerText = news.potensi;
+            document.getElementById('modal-badge-sentimen').className = 'badge ' + getSentimenClass(news.potensi);
+            document.getElementById('print-date').innerText = `Dicetak pada: ${new Date().toLocaleString('id-ID')}`;
+
+            // Lazy Load "Isi Berita"
+            // Karena data sudah terambil di allNewsData, kita tidak perlu memanggil fetch terpisah lagi
+            // yang bisa menyebabkan error CORS atau error Auth jika sedang logout.
+            loading.classList.remove('hidden');
+            content.classList.add('hidden');
+
+            try {
+                // Simulasi lazy loading kecil untuk efek visual (Optional)
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                const isi = news.isi;
+                document.getElementById('modal-text').innerHTML = isi ? `<p>${isi.split('\n').join('</p><p>')}</p>` : '<p class="text-slate-400 italic">Isi berita tidak tersedia.</p>';
+            } catch (error) {
+                document.getElementById('modal-text').innerHTML = '<p class="text-rose-500">Gagal memuat isi berita.</p>';
+            } finally {
+                loading.classList.add('hidden');
+                content.classList.remove('hidden');
+            }
+
+            // Print Button Event
+            document.getElementById('print-news-btn').onclick = async () => {
+                const confirmed = await window.customConfirm("Cetak Berita", "Apakah Anda ingin mencetak dokumen berita ini?", { type: 'info' });
+                if (!confirmed) return;
+
+                window.showLoading("Menyiapkan Dokumen...");
+                
+                setTimeout(() => {
+                    window.hideLoading(true);
+                    
+                    const printWindow = window.open('', '_blank');
+                    const displayPejabat = news.pejabat || '-';
+                    const displayUnit = news.unit || '-';
+                    const fullDateStr = formatDate(news.tanggal_raw);
+                    
+                    printWindow.document.write(`
+                        <html>
+                            <head>
+                                <title>&nbsp;</title>
+                                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                                <style>
+                                    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Inter:wght@400;500;600&display=swap');
+                                    body { font-family: 'Inter', sans-serif; padding: 20px 40px; line-height: 1.6; color: #0f172a; max-width: 900px; margin: 0 auto; }
+                                    .top-header { text-align: center; font-size: 26px; font-weight: 800; font-family: 'Montserrat', sans-serif; margin-bottom: 12px; color: #000; }
+                                    hr.thick { border: none; border-bottom: 3px solid #0f172a; margin-bottom: 25px; }
+                                    .title { font-size: 22px; font-weight: 800; font-family: 'Montserrat', sans-serif; color: #000; margin-bottom: 12px; line-height: 1.4; text-transform: none; }
+                                    .meta-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; color: #334155; margin-bottom: 25px; flex-wrap: wrap; }
+                                    .meta-row i { color: #000; font-size: 14px; margin-right: 2px; }
+                                    .meta-divider { color: #cbd5e1; margin: 0 4px; font-weight: 400; }
+                                    .content { white-space: pre-wrap; font-size: 14px; text-align: justify; line-height: 1.8; color: #1e293b; }
+                                    @page { size: A4; margin: 20mm; }
+                                    @media print { body { padding: 0; } }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="top-header">Rekapan KataKita</div>
+                                <hr class="thick" />
+                                <div class="title">${news.judul}</div>
+                                <div class="meta-row">
+                                    <i class="fas fa-calendar"></i> ${fullDateStr}
+                                    <span class="meta-divider">|</span>
+                                    <i class="fas fa-desktop"></i> ${news.media}
+                                    <span class="meta-divider">|</span>
+                                    <i class="fas fa-user"></i> ${displayPejabat}
+                                    <span class="meta-divider">|</span>
+                                    Potensi: ${news.potensi || 'Netral'}
+                                </div>
+                                <div class="content">
+${news.isi}
+                                </div>
+                                <script>
+                                    window.onload = function() {
+                                        setTimeout(() => {
+                                            window.print();
+                                        }, 800);
+                                    };
+                                <\/script>
+                            </body>
+                        </html>
+                    `);
+                    printWindow.document.close();
+                }, 1000);
+            };
+        }
+
+        function closeModal() {
+            const overlay = document.getElementById('modal-overlay');
+            const card = document.getElementById('modal-card');
+            
+            overlay.style.opacity = '0';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.95)';
+            
+            setTimeout(() => {
+                document.getElementById('news-modal').classList.add('hidden');
+                document.getElementById('news-modal').classList.remove('flex');
+            }, 300);
+        }
+
+        async function printDirect(key) {
+            const news = allNewsData.find(n => n.key === key);
+            if (!news) return;
+            
+            const confirmed = await window.customConfirm("Cetak Berita", "Apakah Anda ingin mencetak berita ini secara langsung?", { type: 'info' });
+            if (!confirmed) return;
+
+            window.showLoading("Membuka Dokumen...");
+            
+            setTimeout(() => {
+                window.hideLoading(true);
+                
+                const printWindow = window.open('', '_blank');
+                const displayPejabat = news.pejabat || '-';
+                const displayUnit = news.unit || '-';
+                const fullDateStr = formatDate(news.tanggal_raw);
+                
+                printWindow.document.write(`
+                    <html>
+                        <head>
+                            <title>&nbsp;</title>
+                            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                            <style>
+                                @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Inter:wght@400;500;600&display=swap');
+                                body { font-family: 'Inter', sans-serif; padding: 20px 40px; line-height: 1.6; color: #0f172a; max-width: 900px; margin: 0 auto; }
+                                .top-header { text-align: center; font-size: 26px; font-weight: 800; font-family: 'Montserrat', sans-serif; margin-bottom: 12px; color: #000; }
+                                hr.thick { border: none; border-bottom: 3px solid #0f172a; margin-bottom: 25px; }
+                                .title { font-size: 22px; font-weight: 800; font-family: 'Montserrat', sans-serif; color: #000; margin-bottom: 12px; line-height: 1.4; text-transform: none; }
+                                .meta-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; color: #334155; margin-bottom: 25px; flex-wrap: wrap; }
+                                .meta-row i { color: #000; font-size: 14px; margin-right: 2px; }
+                                .meta-divider { color: #cbd5e1; margin: 0 4px; font-weight: 400; }
+                                .content { white-space: pre-wrap; font-size: 14px; text-align: justify; line-height: 1.8; color: #1e293b; }
+                                @page { size: A4; margin: 20mm; }
+                                @media print { body { padding: 0; } }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="top-header">Rekapan KataKita</div>
+                            <hr class="thick" />
+                            <div class="title">${news.judul}</div>
+                            <div class="meta-row">
+                                <i class="fas fa-calendar"></i> ${fullDateStr}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-desktop"></i> ${news.media}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-user"></i> ${displayPejabat}
+                                <span class="meta-divider">|</span>
+                                Potensi: ${news.potensi || 'Netral'}
+                            </div>
+                            <div class="content">
+${news.isi}
+                            </div>
+                            <script>
+                                window.onload = function() {
+                                    setTimeout(() => {
+                                        window.print();
+                                    }, 800);
+                                };
+                            <\/script>
+                        </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            }, 1000);
+        }
+
+        // --- Helper Functions ---
+
+        /** Safely parse date input (can be string or timestamp) to Date object */
+        function parseDate(dateVal) {
+            if (!dateVal) return new Date(0);
+            const d = new Date(dateVal);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        }
+
+        function formatDate(dateVal) {
+            const date = parseDate(dateVal);
+            if (date.getTime() === 0) return "-";
+            const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
+            try {
+                let formatted = date.toLocaleDateString('id-ID', options);
+                return formatted.replace(/\w\S*/g, (w) => (w.replace(/^\w/, (c) => c.toUpperCase())));
+            } catch (e) {
+                return "-";
+            }
+        }
+
+        function getPrimaryRole(rawPejabat) {
+            const list = Array.isArray(rawPejabat) ? rawPejabat : [String(rawPejabat || '')];
+            const rolesFound = new Set();
+            
+            list.forEach(pName => {
+                const m = getOfficialMapping(pName);
+                if (m && m.role) {
+                    rolesFound.add(m.role);
+                } else if (pName && String(pName).trim() !== '') {
+                    rolesFound.add("Pejabat Lainnya");
+                }
+            });
+
+            if (rolesFound.size === 0) return "Pejabat Lainnya";
+            
+            // Priority 1: Walikota
+            if (rolesFound.has("Walikota Serang")) return "Walikota Serang";
+            // Priority 2: Wakil Walikota
+            if (rolesFound.has("Wakil Walikota Serang")) return "Wakil Walikota Serang";
+            // Priority 3: Sekda
+            if (rolesFound.has("Sekertaris Daerah Kota Serang")) return "Sekertaris Daerah Kota Serang";
+            
+            const otherRoles = Array.from(rolesFound).filter(r => r !== 'Pejabat Lainnya');
+            if (otherRoles.length > 0) return otherRoles[0];
+            
+            return "Pejabat Lainnya";
+        }
+
+        /** Robust official name matching helper */
+        function getOfficialMapping(rawName) {
+            if (!rawName) return null;
+            // Handle array if multiple officials selected by taking the first one for single-return context
+            const name = Array.isArray(rawName) ? (rawName[0] || '') : String(rawName);
+            const nameLower = name.trim().toLowerCase();
+            
+            // 1. Check exact match from predefined mappings (Keys: Names)
+            if (OFFICIAL_MAPPING[name]) return OFFICIAL_MAPPING[name];
+
+            // 2. Check if matches role name directly
+            const matchByRole = Object.values(OFFICIAL_MAPPING).find(v => v.role && nameLower === v.role.toLowerCase());
+            if (matchByRole) return matchByRole;
+
+            // 3. Search for any identifying fragment
+            if (nameLower.includes("budi rustandi") || nameLower === "budi" || nameLower.includes("h. budi") || nameLower.includes("walikota")) {
+                return OFFICIAL_MAPPING["H. Budi Rustandi"];
+            }
+            if (nameLower.includes("agis aulia") || nameLower.includes("nur agis") || nameLower.includes("wakil walikota")) {
+                return OFFICIAL_MAPPING["Nur Agis Aulia"];
+            }
+            if (nameLower.includes("nanang saefudin") || nameLower.includes("nanang sefudin") || nameLower === "nanang" || nameLower.includes("sekda") || nameLower.includes("sekertaris daerah")) {
+                return OFFICIAL_MAPPING["Nanang Saefudin"];
+            }
+
+            return null;
+        }
+
+        function getSentimenClass(sentimen) {
+            switch(sentimen) {
+                case 'Positif': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+                case 'Netral': return 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700';
+                case 'Negatif': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400';
+                default: return 'bg-slate-100 text-slate-700';
+            }
+        }
+
+        function updateSortIcons() {
+            document.querySelectorAll('#detail-header button[data-sort]').forEach(btn => {
+                const icon = btn.querySelector('i');
+                const col = btn.getAttribute('data-sort');
+                icon.className = 'fas ml-1';
+                if (currentSort.column === col) {
+                    icon.className += currentSort.direction === 'asc' ? ' fa-sort-up opacity-100 text-blue-500' : ' fa-sort-down opacity-100 text-blue-500';
+                    btn.classList.add('text-blue-600', 'dark:text-blue-500');
+                    btn.classList.remove('text-slate-600', 'dark:text-slate-400');
+                } else {
+                    icon.className += ' fa-sort opacity-40';
+                    btn.classList.remove('text-blue-600', 'dark:text-blue-500');
+                    btn.classList.add('text-slate-600', 'dark:text-slate-400');
+                }
+            });
+        }
+
+        function setupEventListeners() {
+            // Theme
+            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+
+            // Rocket Scroll Logic
+            const rocketBtn = document.getElementById('rocket-btn');
+            if (rocketBtn) {
+                let lastScrollY = window.scrollY;
+                window.addEventListener('scroll', () => {
+                    const currentScrollY = window.scrollY;
+
+                    if (currentScrollY < 100) {
+                        // Di paling atas -> Sembunyikan terbang keluar (naik)
+                        rocketBtn.classList.add('rocket-hide-up');
+                        rocketBtn.classList.remove('rocket-show', 'rocket-hide-down');
+                    } else {
+                        // Mulai mendeteksi pergerakan arah scroll
+                        if (currentScrollY > lastScrollY + 15) {
+                            // Scrolling turun -> Sembunyikan ke bawah/hilang
+                            rocketBtn.classList.add('rocket-hide-down');
+                            rocketBtn.classList.remove('rocket-show', 'rocket-hide-up');
+                        } else if (currentScrollY < lastScrollY - 15) {
+                            // Scrolling Naik sedikit -> Langsung munculkan
+                            rocketBtn.classList.add('rocket-show');
+                            rocketBtn.classList.remove('rocket-hide-down', 'rocket-hide-up');
+                        }
+                    }
+
+                    // Update tracker pergerakan asalkan melebihi threshold
+                    if (Math.abs(currentScrollY - lastScrollY) > 15) {
+                        lastScrollY = currentScrollY;
+                    }
+                }, { passive: true });
+            }
+
+            // Filters
+            document.getElementById('trend-filter').addEventListener('change', renderTrendChart);
+            
+            // Search News
+            document.getElementById('news-search').addEventListener('input', () => {
+                newsCurrentPage = 1;
+                updateNewsList();
+            });
+            document.getElementById('news-page-size').addEventListener('change', (e) => {
+                newsPageSize = e.target.value;
+                newsCurrentPage = 1;
+                updateNewsList();
+            });
+
+            // Detail Table Logic
+            document.getElementById('detail-search').addEventListener('input', () => {
+                detailCurrentPage = 1;
+                updateDetailTable();
+            });
+            document.getElementById('detail-header').addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-sort]');
+                if (!btn) return;
+                const col = btn.getAttribute('data-sort');
+                if (currentSort.column === col) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = col;
+                    currentSort.direction = 'asc';
+                }
+                updateDetailTable();
+            });
+            document.getElementById('clear-filter').addEventListener('click', () => {
+                navigateTo('dashboard', true);
+            });
+
+            // Modal
+            document.getElementById('close-modal').addEventListener('click', closeModal);
+            document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+            document.getElementById('modal-overlay').addEventListener('click', closeModal);
+
+            // Login Modal Logic
+            const loginModalBtn = document.getElementById('login-dropdown-btn');
+            loginModalBtn.onclick = () => {
+                window.openLoginModal();
+            };
+
+            document.getElementById('close-login-modal').addEventListener('click', window.closeLoginModal);
+            document.getElementById('login-modal-overlay').addEventListener('click', window.closeLoginModal);
+            document.getElementById('login-form').addEventListener('submit', (e) => {
+                e.preventDefault(); // MUST call immediately to prevent page reload
+                if (window.handleLogin) {
+                    window.handleLogin(e);
+                } else {
+                    alert('Sistem belum termuat. Silakan tunggu...');
+                }
+            });
+        }
+
+        window.openLoginModal = function() {
+            const modal = document.getElementById('login-modal');
+            if (modal.classList.contains('flex')) {
+                window.closeLoginModal();
+                return;
+            }
+            const overlay = document.getElementById('login-modal-overlay');
+            const card = document.getElementById('login-modal-card');
+            
+            // Clear inputs
+            document.getElementById('login-email').value = '';
+            document.getElementById('login-password').value = '';
+            const pwdInput = document.getElementById('login-password');
+            const pwdIcon = document.getElementById('toggle-password-icon');
+            if (pwdInput && pwdIcon) {
+                pwdInput.type = 'password';
+                pwdIcon.classList.remove('fa-eye-slash');
+                pwdIcon.classList.add('fa-eye');
+            }
+
+            const errorMsg = document.getElementById('login-error-msg');
+            if(errorMsg) errorMsg.remove();
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            // Trigger animation
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+                card.style.opacity = '1';
+                card.style.transform = 'scale(1)';
+            }, 10);
+        }
+
+        window.togglePasswordVisibility = function() {
+            const pwdInput = document.getElementById('login-password');
+            const pwdIcon = document.getElementById('toggle-password-icon');
+            if (pwdInput.type === 'password') {
+                pwdInput.type = 'text';
+                pwdIcon.classList.remove('fa-eye');
+                pwdIcon.classList.add('fa-eye-slash');
+            } else {
+                pwdInput.type = 'password';
+                pwdIcon.classList.remove('fa-eye-slash');
+                pwdIcon.classList.add('fa-eye');
+            }
+        };
+
+        window.closeLoginModal = function() {
+            const overlay = document.getElementById('login-modal-overlay');
+            const card = document.getElementById('login-modal-card');
+            
+            overlay.style.opacity = '0';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.95)';
+            
+            setTimeout(() => {
+                document.getElementById('login-modal').classList.add('hidden');
+                document.getElementById('login-modal').classList.remove('flex');
+                document.getElementById('login-form').reset();
+            }, 300);
+        }
+
+        function showEmptyStates(isError = false) {
+            const body = document.getElementById('news-list-body');
+            if (isError) {
+                body.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-rose-500">Terjadi kesalahan saat memuat data. Periksa pengaturan Firebase atau koneksi Anda.</td></tr>`;
+            } else {
+                body.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-400">Belum ada data berita di database.</td></tr>`;
+            }
+            
+            const createEmptyStatHTML = (title, icon, colorClass) => `
+                <div class="flex items-center gap-4">
+                    <div class="p-3 ${colorClass} bg-opacity-10 rounded-xl text-2xl ${colorClass.replace('bg-', 'text-')}">
+                        <i class="fas ${icon}"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">${title}</p>
+                        <p class="text-3xl font-extrabold">-</p>
+                    </div>
+                </div>
+            `;
+
+            const statTotal = document.getElementById('stat-total');
+            statTotal.className = "stat-card border-l-blue-500 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20 text-blue-600 dark:text-blue-400 transition-all hover:shadow-md hover:-translate-y-1";
+            statTotal.innerHTML = createEmptyStatHTML('Total Berita', 'fa-globe', 'bg-blue-500');
+
+            const statPositive = document.getElementById('stat-positive');
+            statPositive.className = "stat-card border-l-emerald-500 cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 transition-all hover:shadow-md hover:-translate-y-1";
+            statPositive.innerHTML = createEmptyStatHTML('Positif', 'fa-smile', 'bg-emerald-500');
+
+            const statNeutral = document.getElementById('stat-neutral');
+            statNeutral.className = "stat-card border-l-slate-400 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700/50 text-slate-600 dark:text-slate-300 transition-all hover:shadow-md hover:-translate-y-1";
+            statNeutral.innerHTML = createEmptyStatHTML('Netral', 'fa-meh', 'bg-slate-400');
+
+            const statNegative = document.getElementById('stat-negative');
+            statNegative.className = "stat-card border-l-rose-500 cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 transition-all hover:shadow-md hover:-translate-y-1";
+            statNegative.innerHTML = createEmptyStatHTML('Negatif', 'fa-frown', 'bg-rose-500');
+        }
+
+        // Global Loading Logic
+        window.showLoading = function(text = "Memuat...") {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el && txt) {
+                txt.innerText = text;
+                el.classList.remove('hidden');
+                el.classList.add('flex');
+                setTimeout(() => el.classList.add('opacity-100'), 10);
+            }
+        };
+
+        window.hideLoading = function(success = false) {
+            const el = document.getElementById('global-loading');
+            const txt = document.getElementById('global-loading-text');
+            if (el) {
+                if (success && txt) {
+                    txt.innerText = "Selesai!";
+                    const icon = el.querySelector('.animate-spin');
+                    if (icon) {
+                        icon.classList.remove('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                        icon.classList.add('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                        icon.innerHTML = '<i class="fas fa-check text-white text-xl"></i>';
+                    }
+                    setTimeout(() => {
+                        el.classList.remove('opacity-100');
+                        setTimeout(() => {
+                            el.classList.add('hidden');
+                            el.classList.remove('flex', 'flex-col');
+                            // Reset for next time
+                            if (icon) {
+                                icon.classList.add('animate-spin', 'border-t-blue-600', 'dark:border-t-blue-500');
+                                icon.classList.remove('border-emerald-500', 'bg-emerald-500', 'flex', 'items-center', 'justify-center');
+                                icon.innerHTML = '';
+                            }
+                        }, 300);
+                    }, 800);
+                } else {
+                    el.classList.remove('opacity-100');
+                    setTimeout(() => {
+                        el.classList.add('hidden');
+                        el.classList.remove('flex');
+                    }, 300);
+                }
+            }
+        };
+
+        window.customConfirm = function(title, message, options = {}) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('confirm-modal');
+                const content = document.getElementById('confirm-modal-content');
+                const titleEl = document.getElementById('confirm-modal-title');
+                const msgEl = document.getElementById('confirm-modal-message');
+                const okBtn = document.getElementById('confirm-ok');
+                const cancelBtn = document.getElementById('confirm-cancel');
+                const iconContainer = modal.querySelector('.text-3xl');
+                const icon = iconContainer.querySelector('i');
+
+                titleEl.innerText = title;
+                msgEl.innerText = message;
+                
+                // Theme defaults
+                const theme = options.type === 'info' ? {
+                    icon: 'fa-print',
+                    iconBg: 'bg-blue-100 dark:bg-blue-900/30',
+                    iconText: 'text-blue-600 dark:text-blue-400',
+                    btnBg: 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30',
+                    btnText: 'Lanjutkan',
+                    bounce: false
+                } : options.type === 'warn' ? {
+                     icon: 'fa-sign-out-alt',
+                     iconBg: 'bg-amber-100 dark:bg-amber-900/30',
+                     iconText: 'text-amber-600 dark:text-amber-400',
+                     btnBg: 'bg-amber-600 hover:bg-amber-700 shadow-amber-500/30',
+                     btnText: 'Keluar',
+                     bounce: false
+                 } : {
+                    icon: 'fa-trash-alt',
+                    iconBg: 'bg-rose-100 dark:bg-rose-900/30',
+                    iconText: 'text-rose-600 dark:text-rose-400',
+                    btnBg: 'bg-rose-600 hover:bg-rose-700 shadow-rose-500/30',
+                    btnText: 'Ya, Hapus',
+                    bounce: true
+                };
+
+                icon.className = `fas ${theme.icon} ${theme.bounce ? 'animate-bounce' : ''}`;
+                iconContainer.className = `w-20 h-20 ${theme.iconBg} ${theme.iconText} rounded-full flex items-center justify-center text-3xl mb-2`;
+                okBtn.className = `flex-1 btn ${theme.btnBg} text-white py-4 text-lg font-bold`;
+                okBtn.innerText = theme.btnText;
+
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    modal.classList.add('opacity-100');
+                    content.classList.remove('translate-y-4');
+                }, 10);
+
+                const cleanup = (result) => {
+                    modal.classList.remove('opacity-100');
+                    content.classList.add('translate-y-4');
+                    setTimeout(() => {
+                        modal.classList.add('hidden');
+                        modal.classList.remove('flex');
+                    }, 300);
+                    resolve(result);
+                };
+
+                cancelBtn.onclick = () => cleanup(false);
+                okBtn.onclick = () => cleanup(true);
+            });
+        };
+
+        // Modify fetchData to include loading state wrapper
+        const originalFetchData = fetchData;
+        fetchData = async function() {
+            if(window.showLoading) window.showLoading('Mengambil data...');
+            try {
+                await originalFetchData();
+            } finally {
+                if(window.hideLoading) window.hideLoading();
+            }
+        };
+
+        // --- Execute Init ---
+        // Robust initialization logic: check flag first, then listen
+        if (window.firebaseIsReady) {
+            init();
+        } else {
+            window.addEventListener('firebaseReady', () => {
+                 init();
+            });
+        }
+        
+        // Backup init if event fails to fire or stuck
+        setTimeout(() => {
+            if (!isInitialized) init();
+        }, 3000);
+    </script>
+    
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9990] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white dark:bg-dark-card p-8 rounded-3xl shadow-2xl w-full max-w-sm flex flex-col gap-8 border border-slate-200 dark:border-slate-800 translate-y-4 transition-all duration-300" id="confirm-modal-content">
+            <div class="flex flex-col items-center text-center gap-4">
+                <div class="w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center text-3xl mb-2">
+                    <i class="fas fa-trash-alt animate-bounce"></i>
+                </div>
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 dark:text-white" id="confirm-modal-title">Hapus Data?</h3>
+                    <p class="text-slate-500 dark:text-slate-400 mt-2 leading-relaxed" id="confirm-modal-message">Apakah Anda yakin ingin menghapus data ini? Tindakan ini tidak dapat dibatalkan.</p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button id="confirm-cancel" class="flex-1 btn bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 py-4 text-lg">
+                    Batal
+                </button>
+                <button id="confirm-ok" class="flex-1 btn bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 py-4 text-lg font-bold">
+                    Ya, Hapus
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loading" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white/90 dark:bg-dark-card/90 p-10 rounded-3xl shadow-2xl flex flex-col items-center gap-6 border border-slate-200 dark:border-slate-800 max-w-xs w-full">
+            <div class="relative w-20 h-20">
+                <div class="absolute inset-0 animate-ping rounded-full bg-blue-500/20"></div>
+                <div class="relative flex items-center justify-center w-full h-full">
+                    <div class="animate-spin rounded-full h-16 w-16 border-[5px] border-slate-200 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500"></div>
+                </div>
+            </div>
+            <p id="global-loading-text" class="text-slate-700 dark:text-slate-300 font-bold text-xl text-center">Sedang Memproses...</p>
+        </div>
+    </div>
+    
+    <!-- Floating Rocket Button -->
+    <button id="rocket-btn" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });" class="fixed bottom-6 right-6 z-[90] p-4 rounded-full bg-blue-600 text-white shadow-lg shadow-blue-500/40 hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-500/50 transition-all duration-700 flex items-center justify-center group rocket-hide-up" title="Kembali ke atas">
+        <i class="fas fa-rocket -rotate-45 text-xl group-hover:-translate-y-1 group-hover:scale-110 transition-transform duration-300"></i>
+    </button>
+
+    <script type="module" src="/src/auth.ts"></script>
+</body>
+</html>
+
