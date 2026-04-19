@@ -1,0 +1,6 @@
+{
+  "name": "Remix: KataKita - Pemantau Berita",
+  "description": "Aplikasi dashboard pemantauan berita dengan visualisasi data statistik, tren media, dan fitur cetak berita.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

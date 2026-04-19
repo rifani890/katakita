@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KataKita - Kelola Berita</title>
+    <link rel="icon" href="https://drive.google.com/thumbnail?id=1fmmwR8gpdyfT_K3W7B620AKKgJFTNcPs&sz=w1000" />
+    <script>
+        /**
+         * Ultra-robust Fix for "Cannot set property fetch of #<Window> which has only a getter"
+         */
+        (function() {
+            try {
+                let currentFetch = window.fetch;
+                Object.defineProperty(window, 'fetch', {
+                    get: function() { return currentFetch; },
+                    set: function(v) { 
+                        console.log("Environment: fetch has been patched/wrapped.");
+                        currentFetch = v; 
+                    },
+                    configurable: true,
+                    enumerable: true
+                });
+                window.global = window;
+            } catch (e) {
+                console.warn("Environmental fetch patch applied via fallback.");
+            }
+        })();
+    </script>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        poppins: ['Poppins', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            bg: '#0f172a',
+                            card: '#1e293b',
+                            text: '#f1f5f9'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script>
+        // Init theme immediately to prevent flash
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        })();
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply font-poppins bg-slate-50 text-slate-900 transition-colors duration-300;
+            }
+            .dark body {
+                @apply bg-dark-bg text-dark-text;
+            }
+        }
+        
+        @layer components {
+            .card {
+                @apply bg-white dark:bg-dark-card rounded-xl shadow-sm border border-slate-300 dark:border-slate-600 p-5 transition-all;
+            }
+            .stat-card {
+                @apply card border-l-4;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 flex items-center justify-center gap-2;
+            }
+            .btn-primary {
+                @apply bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/30;
+            }
+            .badge {
+                @apply px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased overflow-x-hidden">
+    <!-- Navbar -->
+    <nav class="sticky top-0 z-50 w-full bg-white/80 dark:bg-dark-card/80 backdrop-blur-md border-b border-slate-300 dark:border-slate-600">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-2">
+                    <button id="mobile-sidebar-toggle" class="hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        <i class="fas fa-bars-staggered text-xl"></i>
+                    </button>
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 overflow-hidden flex items-center justify-center">
+                            <img src="/src/logo.png" alt="Logo" class="w-full h-full object-contain">
+                        </div>
+                        <span class="text-2xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">KataKita</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 sm:gap-4">
+                    <button id="theme-toggle" class="p-2.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Toggle Tema">
+                        <i class="fas fa-moon dark:hidden"></i>
+                        <i class="fas fa-sun hidden dark:block"></i>
+                    </button>
+                    <button onclick="window.logoutUser()" class="btn text-xs sm:text-sm border-0 bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors px-3 sm:px-4">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span class="hidden sm:inline">Logout</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex h-[calc(100vh-4rem)] bg-slate-50 dark:bg-dark-bg w-full relative overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="admin-sidebar" class="absolute inset-y-0 left-0 z-40 w-64 transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300 ease-in-out flex flex-col bg-white dark:bg-dark-card border-r border-slate-200 dark:border-slate-700 h-full">
+            <div class="md:hidden flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+                <span class="font-bold text-slate-800 dark:text-white">Admin Menu</span>
+                <button onclick="toggleSidebar()" class="p-2 text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <nav class="flex-1 px-4 py-6 md:py-8 space-y-2 overflow-y-auto">
+                <a href="/admin/index.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-home w-5 text-center"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="/admin/berita.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-blue-600 bg-blue-50 dark:bg-blue-900/20 font-bold transition-all">
+                    <i class="fas fa-newspaper w-5 text-center"></i>
+                    <span>Kelola Berita</span>
+                </a>
+                <a href="/admin/unit.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-building w-5 text-center"></i>
+                    <span>Unit Kerja</span>
+                </a>
+                <a href="/admin/pejabat.html" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium transition-all">
+                    <i class="fas fa-user-tie w-5 text-center"></i>
+                    <span>Nama Pejabat</span>
+                </a>
+
+                <div class="pt-4 mt-4 border-t border-slate-200 dark:border-slate-700">
+                    <a href="/" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 font-bold transition-all">
+                        <i class="fas fa-globe w-5 text-center"></i>
+                        <span>Lihat Website</span>
+                    </a>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Overlay for mobile -->
+        <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm hidden md:hidden transition-opacity duration-300"></div>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-8 pb-28 md:pb-8 custom-scrollbar relative">
+            <div id="section-berita" class="admin-section">
+                <div class="card space-y-6">
+                    <div class="flex flex-col gap-6 border-b border-slate-100 dark:border-slate-800 pb-6">
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <h3 class="text-xl font-bold flex items-center gap-3 text-slate-800 dark:text-white">
+                                <i class="fas fa-newspaper text-indigo-500 text-2xl"></i>
+                                Kelola Berita
+                            </h3>
+                            <button onclick="openNewsModal()" class="btn btn-primary text-sm shadow-indigo-500/30 w-full sm:w-auto">
+                                <i class="fas fa-plus"></i> Berita Baru
+                            </button>
+                        </div>
+                        
+                        <!-- Search and Sort Actions -->
+                        <div class="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl">
+                            <div class="relative w-full">
+                                <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                                <input type="text" id="news-search" placeholder="Cari berdasarkan judul, media, tanggal, pejabat, potensi, unit, atau user..." 
+                                    class="w-full bg-white dark:bg-slate-900 border-0 rounded-xl pl-11 pr-4 py-3 outline-none ring-1 ring-slate-200 dark:ring-slate-700 focus:ring-2 focus:ring-indigo-500 transition-all text-sm text-slate-800 dark:text-white">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto custom-scrollbar rounded-xl border border-slate-200 dark:border-slate-700">
+                        <table class="w-full text-left border-collapse">
+                            <thead class="bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                                <tr class="border-b border-slate-300 dark:border-slate-600 divide-x divide-slate-300 dark:divide-slate-600">
+                                    <th class="px-4 py-3 text-xs font-bold uppercase w-12 text-center">No</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="setNewsSort('tanggal_raw')">
+                                        Tanggal <i class="fas fa-sort ml-1 opacity-50"></i>
+                                    </th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="setNewsSort('judul')">
+                                        Judul <i class="fas fa-sort ml-1 opacity-50"></i>
+                                    </th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="setNewsSort('media')">
+                                        Media <i class="fas fa-sort ml-1 opacity-50"></i>
+                                    </th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase">Pejabat</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase">Unit Kerja</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors" onclick="setNewsSort('potensi')">
+                                        Potensi <i class="fas fa-sort ml-1 opacity-50"></i>
+                                    </th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase">User</th>
+                                    <th class="px-4 py-3 text-xs font-bold uppercase text-center">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-news-list" class="divide-y divide-slate-200 dark:divide-slate-700">
+                                <!-- Data will be loaded here -->
+                                <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Memuat data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="flex flex-col md:flex-row gap-6 items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-6">
+                        <div class="text-sm text-slate-500" id="news-pagination-info">
+                            Menampilkan <span class="font-bold text-slate-800 dark:text-white">0</span> dari <span class="font-bold text-slate-800 dark:text-white">0</span> berita
+                        </div>
+
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Baris:</span>
+                            <select id="news-per-page" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-sm outline-none ring-1 ring-slate-200 dark:ring-slate-700 focus:ring-2 focus:ring-indigo-500">
+                                <option value="10">10</option>
+                                <option value="20">20</option>
+                                <option value="30">30</option>
+                                <option value="40">40</option>
+                                <option value="50">50</option>
+                                <option value="all">Semua</option>
+                            </select>
+                        </div>
+
+                        <div id="news-pagination-buttons" class="flex gap-2">
+                            <!-- Page buttons -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals (Borrowed from admin.html) -->
+    <!-- News Modal -->
+    <div id="modal-news" class="fixed inset-0 z-[60] hidden bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto items-start justify-center py-10">
+        <div id="modal-news-card" class="bg-white dark:bg-dark-card w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-visible relative transition-all duration-300 transform scale-100 opacity-100 mb-10">
+            <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                <h3 id="news-modal-title" class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-3">
+                    <i class="fas fa-plus-circle text-blue-600"></i>
+                    Tambah Berita Baru
+                </h3>
+                <button onclick="closeNewsModal()" class="w-10 h-10 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-500 transition-all">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="form-news" onsubmit="saveNews(event)" class="p-8 space-y-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Judul & Media -->
+                    <div class="space-y-6">
+                        <div class="group">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Judul Berita <span class="text-rose-500">*</span></label>
+                            <input type="text" id="news-judul" required placeholder="Masukkan judul berita..." 
+                                class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium text-slate-800 dark:text-white">
+                        </div>
+                        
+                        <div class="group relative">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Nama Media <span class="text-rose-500">*</span></label>
+                            <div class="flex gap-2">
+                                <select id="news-media" required class="flex-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium appearance-none text-slate-800 dark:text-white">
+                                    <option value="">Pilih Media</option>
+                                    <!-- Options populated by JS -->
+                                </select>
+                                <button type="button" onclick="toggleQuickAdd('media')" class="btn bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-xl px-4">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <div id="quick-add-media" class="hidden absolute z-[80] left-0 right-0 top-full mt-2 p-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-indigo-100 dark:border-indigo-800/50 space-y-3">
+                                <input type="text" id="new-media-name" placeholder="Nama media baru..." class="w-full px-4 py-2 rounded-lg text-sm bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 outline-none">
+                                <button type="button" onclick="quickAddMedia()" class="w-full btn btn-primary text-xs py-2">Tambah & Pilih</button>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Tanggal Berita <span class="text-rose-500">*</span></label>
+                            <input type="date" id="news-tanggal-input" required 
+                                class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium text-slate-800 dark:text-white">
+                        </div>
+                    </div>
+
+                    <!-- Pejabat & Unit -->
+                    <div class="space-y-6">
+                        <div class="group relative">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Nama Pejabat <span class="text-rose-500">*</span></label>
+                            <div class="flex gap-2">
+                                <div id="pejabat-dropdown-container" class="relative flex-1">
+                                    <button type="button" onclick="togglePejabatDropdown()" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 text-left outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium flex justify-between items-center group text-slate-800 dark:text-white">
+                                        <span id="pejabat-display-text" class="truncate text-slate-400">Pilih Pejabat</span>
+                                        <i class="fas fa-chevron-down text-slate-300 group-focus-within:rotate-180 transition-transform"></i>
+                                    </button>
+                                    
+                                    <div id="pejabat-dropdown-list" class="absolute z-[80] left-0 right-0 top-full mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-64 overflow-hidden hidden flex-col p-0">
+                                        <div class="sticky top-0 bg-white dark:bg-slate-900 z-10 px-2 pt-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                                            <div class="relative">
+                                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                                                <input type="text" id="pejabat-modal-search" placeholder="Cari nama atau jabatan..." class="w-full bg-slate-50 dark:bg-slate-800 border-0 rounded-lg pl-9 pr-3 py-2 text-sm outline-none ring-1 ring-slate-200 dark:ring-slate-700 focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 dark:text-white" onkeyup="filterPejabatModalList()">
+                                            </div>
+                                        </div>
+                                        <div id="pejabat-checklist" class="space-y-1 overflow-y-auto px-2 pb-2 custom-scrollbar flex-1">
+                                            <!-- Checkboxes populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="toggleQuickAdd('pejabat')" class="bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 rounded-xl px-4 transition-colors">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <!-- Quick add for Pejabat inside the same layout if needed -->
+                            <div id="quick-add-pejabat" class="hidden absolute z-[80] left-0 right-0 top-full mt-2 p-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-indigo-100 dark:border-indigo-800/50 space-y-3">
+                                <input type="text" id="new-pejabat-name" placeholder="Nama pejabat baru..." class="w-full px-4 py-2 rounded-lg text-sm bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 outline-none">
+                                <input type="text" id="new-pejabat-jabatan" placeholder="Jabatan..." class="w-full px-4 py-2 rounded-lg text-sm bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 outline-none">
+                                <button type="button" onclick="quickAddPejabat()" class="w-full btn btn-primary text-xs py-2">Tambah ke Daftar</button>
+                            </div>
+                        </div>
+
+                        <div class="group relative">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Unit Kerja <span class="text-rose-500">*</span></label>
+                            <div class="flex gap-2">
+                                <div id="unit-dropdown-container" class="relative flex-1">
+                                    <input type="hidden" id="news-unit" required>
+                                    <button type="button" onclick="toggleUnitDropdown()" class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 text-left outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium flex justify-between items-center group text-slate-800 dark:text-white h-full">
+                                        <span id="unit-display-text" class="truncate text-slate-400">Pilih Unit Kerja</span>
+                                        <i class="fas fa-chevron-down text-slate-300 group-focus-within:rotate-180 transition-transform"></i>
+                                    </button>
+                                    
+                                    <div id="unit-dropdown-list" class="absolute z-[80] left-0 right-0 top-full mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl max-h-80 overflow-hidden hidden flex-col p-0">
+                                        <div class="sticky top-0 bg-white dark:bg-slate-900 z-10 px-2 pt-2 pb-2 mb-1 border-b border-slate-100 dark:border-slate-800">
+                                            <div class="relative">
+                                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                                                <input type="text" id="unit-modal-search" placeholder="Cari unit kerja..." class="w-full bg-slate-50 dark:bg-slate-800 border-0 rounded-lg pl-9 pr-3 py-2 text-sm outline-none ring-1 ring-slate-200 dark:ring-slate-700 focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 dark:text-white" onkeyup="filterUnitModalList()">
+                                            </div>
+                                        </div>
+                                        <div id="unit-dropdown-items" class="space-y-1 overflow-y-auto px-2 pb-2 custom-scrollbar flex-1">
+                                            <!-- Items populated by JS -->
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="toggleQuickAdd('unit')" class="btn bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-xl px-4">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                            <div id="quick-add-unit" class="hidden absolute z-[80] left-0 right-0 top-full mt-2 p-4 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-indigo-100 dark:border-indigo-800/50 space-y-3">
+                                <input type="text" id="new-unit-name" placeholder="Nama unit baru..." class="w-full px-4 py-2 rounded-lg text-sm bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 outline-none">
+                                <button type="button" onclick="quickAddUnit()" class="w-full btn btn-primary text-xs py-2">Tambah & Pilih</button>
+                            </div>
+                        </div>
+
+                        <div class="group">
+                            <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Analisis Potensi <span class="text-rose-500">*</span></label>
+                            <select id="news-potensi" required class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-4 outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium appearance-none text-slate-800 dark:text-white">
+                                <option value="" disabled selected>Pilih Potensi</option>
+                                <option value="Netral">Netral</option>
+                                <option value="Positif">Positif</option>
+                                <option value="Negatif">Negatif</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="group">
+                    <label class="block text-xs font-black text-slate-400 uppercase tracking-widest mb-2 group-focus-within:text-blue-600 transition-colors">Isi Berita <span class="text-rose-500">*</span></label>
+                    <textarea id="news-isi" rows="10" required placeholder="Tulis isi berita di sini..." 
+                        class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-6 py-6 outline-none focus:ring-2 ring-blue-500/50 transition-all font-medium resize-none custom-scrollbar text-slate-800 dark:text-white"></textarea>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-4 pt-6">
+                    <button type="button" onclick="closeNewsModal()" class="flex-1 btn bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 py-4 rounded-xl font-bold">
+                        Batal
+                    </button>
+                    <button type="submit" class="flex-[2] btn btn-primary py-4 rounded-xl font-bold text-lg">
+                        Simpan Berita
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View News Modal -->
+    <div id="view-news-modal" class="fixed inset-0 z-[70] hidden bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto items-center justify-center">
+        <div id="view-news-modal-card" class="bg-white dark:bg-dark-card w-full max-w-2xl rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden relative transition-all duration-300 transform scale-95 opacity-0 my-auto">
+            <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-start bg-slate-50/50 dark:bg-slate-800/50">
+                <h3 id="view-modal-judul" class="text-xl md:text-2xl font-bold text-slate-800 dark:text-white leading-snug">
+                    Judul Berita
+                </h3>
+                <button onclick="closeViewNewsModal()" class="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-500 transition-all ml-4">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="view-modal-scroll-container" class="p-6 md:p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                <div class="flex flex-wrap gap-2 md:gap-4 items-center text-xs md:text-sm text-slate-500 border-b border-slate-100 dark:border-slate-800 pb-4">
+                    <span class="flex items-center gap-2"><i class="fas fa-desktop text-indigo-500"></i> <span id="view-modal-media" class="font-bold text-slate-700 dark:text-slate-300">Media</span></span>
+                    <span class="text-slate-300 dark:text-slate-600">|</span>
+                    <span class="flex items-center gap-2"><i class="fas fa-calendar text-blue-500"></i> <span id="view-modal-tanggal">Tanggal</span></span>
+                    <span class="text-slate-300 dark:text-slate-600">|</span>
+                    <span class="flex items-center gap-2" id="view-modal-potensi-container">
+                        <span id="view-modal-potensi" class="badge">Netral</span>
+                    </span>
+                </div>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Pejabat Terkait</div>
+                        <div id="view-modal-pejabat" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Pejabat</div>
+                    </div>
+                    <div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Unit Kerja</div>
+                        <div id="view-modal-unit" class="text-sm font-semibold text-slate-700 dark:text-slate-300">Unit</div>
+                    </div>
+                </div>
+
+                <div class="prose dark:prose-invert max-w-none">
+                    <p id="view-modal-isi" class="text-slate-700 dark:text-slate-300 leading-loose text-justify whitespace-pre-wrap">
+                        <!-- Isi Berita -->
+                    </p>
+                </div>
+            </div>
+            <div class="p-6 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex justify-end">
+                <button onclick="closeViewNewsModal()" class="btn btn-primary px-6">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation -->
+    <div id="mobile-bottom-nav" class="md:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-[70] w-[88%] max-w-[20rem] rounded-full bg-white dark:bg-dark-card shadow-[0_8px_30px_rgb(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.5)] border border-slate-200 dark:border-slate-700 px-5 h-[3.25rem] flex justify-between items-center transition-all duration-300 ease-in-out translate-y-0">
+        <!-- Dashboard -->
+        <a href="/admin/index.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-home text-[1.35rem]"></i>
+        </a>
+        <!-- Website -->
+        <a href="/" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-globe text-[1.35rem]"></i>
+        </a>
+        
+        <!-- Central Plus -->
+        <a href="/admin/berita.html" class="relative -top-[1.35rem] w-[3.75rem] h-[3.75rem] rounded-full bg-blue-600 shadow-[0_4px_15px_rgba(37,99,235,0.4)] text-white flex items-center justify-center border-[7px] border-slate-50 dark:border-dark-bg hover:bg-blue-700 hover:scale-105 transition-transform overflow-hidden mx-0.5 flex-shrink-0">
+            <i class="fas fa-newspaper absolute inset-0 w-full h-full text-[2.2rem] opacity-20 flex items-center justify-center pointer-events-none mt-1"></i>
+            <i class="fas fa-plus relative z-10 text-lg font-bold"></i>
+        </a>
+
+        <!-- Unit Kerja -->
+        <a href="/admin/unit.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-building text-[1.35rem]"></i>
+        </a>
+        <!-- Pejabat -->
+        <a href="/admin/pejabat.html" class="flex flex-col items-center justify-center text-slate-400 hover:text-blue-600 dark:text-slate-500 dark:hover:text-blue-400 transition-colors">
+            <i class="fas fa-user-tie text-[1.35rem]"></i>
+        </a>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const bottomNav = document.getElementById('mobile-bottom-nav');
+            const scrollContainer = document.querySelector('main.overflow-y-auto');
+            const viewModalScrollContainer = document.getElementById('view-modal-scroll-container');
+            
+            if (bottomNav) {
+                if (scrollContainer) {
+                    let lastScrollY = scrollContainer.scrollTop;
+                    scrollContainer.addEventListener('scroll', () => {
+                        const currentScrollY = scrollContainer.scrollTop;
+                        if (currentScrollY > lastScrollY && currentScrollY > 10) {
+                            bottomNav.classList.add('translate-y-24', 'opacity-0');
+                        } else {
+                            bottomNav.classList.remove('translate-y-24', 'opacity-0');
+                        }
+                        lastScrollY = currentScrollY;
+                    }, { passive: true });
+                }
+                
+                if (viewModalScrollContainer) {
+                    let lastModalScrollY = viewModalScrollContainer.scrollTop;
+                    viewModalScrollContainer.addEventListener('scroll', () => {
+                        const currentScrollY = viewModalScrollContainer.scrollTop;
+                        if (currentScrollY > lastModalScrollY && currentScrollY > 10) {
+                            bottomNav.classList.add('translate-y-24', 'opacity-0');
+                        } else {
+                            bottomNav.classList.remove('translate-y-24', 'opacity-0');
+                        }
+                        lastModalScrollY = currentScrollY;
+                    }, { passive: true });
+                }
+            }
+        });
+    </script>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9990] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white dark:bg-dark-card p-8 rounded-3xl shadow-2xl w-full max-w-sm flex flex-col gap-8 border border-slate-200 dark:border-slate-800 translate-y-4 transition-all duration-300" id="confirm-modal-content">
+            <div class="flex flex-col items-center text-center gap-4">
+                <div class="w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center text-3xl mb-2">
+                    <i class="fas fa-trash-alt animate-bounce"></i>
+                </div>
+                <div>
+                    <h3 class="text-2xl font-black text-slate-800 dark:text-white" id="confirm-modal-title">Hapus Data?</h3>
+                    <p class="text-slate-500 dark:text-slate-400 mt-2 leading-relaxed" id="confirm-modal-message">Apakah Anda yakin ingin menghapus data ini? Tindakan ini tidak dapat dibatalkan.</p>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button id="confirm-cancel" class="flex-1 btn bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 py-4 text-lg">
+                    Batal
+                </button>
+                <button id="confirm-ok" class="flex-1 btn bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 py-4 text-lg font-bold">
+                    Ya, Hapus
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Loading Overlay -->
+    <div id="global-loading" class="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999] hidden flex-col items-center justify-center transition-all duration-300 opacity-0 px-4">
+        <div class="bg-white/90 dark:bg-dark-card/90 p-10 rounded-3xl shadow-2xl flex flex-col items-center gap-6 border border-slate-200 dark:border-slate-800 max-w-xs w-full">
+            <div class="relative w-20 h-20">
+                <div class="absolute inset-0 animate-ping rounded-full bg-blue-500/20"></div>
+                <div class="relative flex items-center justify-center w-full h-full">
+                    <div class="animate-spin rounded-full h-16 w-16 border-[5px] border-slate-200 dark:border-slate-700 border-t-blue-600 dark:border-t-blue-500"></div>
+                </div>
+            </div>
+            <p id="global-loading-text" class="text-slate-700 dark:text-slate-300 font-bold text-xl text-center">Sedang Memproses...</p>
+        </div>
+    </div>
+
+    <script>
+        // Shared states
+        let allNewsData = [];
+        let allUnitData = [];
+        let allOfficialData = [];
+        let allMediaData = [];
+        
+        let activeNewsKey = null;
+
+        // Table states
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let sortField = 'tanggal_raw';
+        let sortOrder = 'desc';
+        let searchQuery = '';
+
+        /** View News Modal */
+        window.openViewNewsModal = function(key) {
+            const news = allNewsData.find(n => n.key === key);
+            if (!news) return;
+
+            document.getElementById('view-modal-judul').innerText = news.judul || 'Tanpa Judul';
+            document.getElementById('view-modal-media').innerText = news.media || '-';
+            document.getElementById('view-modal-tanggal').innerText = news.tanggal || '-';
+            
+            const displayPejabat = Array.isArray(news.pejabat) ? news.pejabat.join(', ') : (news.pejabat || '-');
+            document.getElementById('view-modal-pejabat').innerHTML = displayPejabat;
+            document.getElementById('view-modal-unit').innerText = news.unit || '-';
+            document.getElementById('view-modal-isi').innerText = news.isi || 'Tidak ada konten berita.';
+
+            const badge = document.getElementById('view-modal-potensi');
+            const colorMap = { 'Positif': 'emerald', 'Negatif': 'rose', 'Netral': 'slate' };
+            const color = colorMap[news.potensi] || 'slate';
+            badge.className = `badge bg-${color}-100 text-${color}-600 dark:bg-${color}-900/40 dark:text-${color}-400`;
+            badge.innerText = news.potensi || 'Netral';
+
+            const modal = document.getElementById('view-news-modal');
+            const card = document.getElementById('view-news-modal-card');
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                modal.classList.add('opacity-100');
+                card.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        };
+
+        window.closeViewNewsModal = function() {
+            const modal = document.getElementById('view-news-modal');
+            const card = document.getElementById('view-news-modal-card');
+            
+            modal.classList.remove('opacity-100');
+            card.classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        };
+
+        /** Loading State Handlers */
+        window.showLoading = (text = 'Sedang Memproses...') => {
+            const overlay = document.getElementById('global-loading');
+            document.getElementById('global-loading-text').innerText = text;
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            overlay.style.pointerEvents = 'auto';
+            setTimeout(() => overlay.style.opacity = '1', 50);
+        };
+
+        window.hideLoading = (isSuccess = false) => {
+            const overlay = document.getElementById('global-loading');
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.classList.remove('flex');
+                overlay.classList.add('hidden');
+            }, 300);
+        };
+
+        /** Confirm Modal Proxy */
+        window.customConfirm = (title, message, options = { type: 'delete' }) => {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('confirm-modal');
+                const titleEl = document.getElementById('confirm-modal-title');
+                const messageEl = document.getElementById('confirm-modal-message');
+                const okBtn = document.getElementById('confirm-ok');
+                const cancelBtn = document.getElementById('confirm-cancel');
+                const iconContainer = modal.querySelector('.animate-bounce').parentElement;
+
+                titleEl.innerText = title;
+                messageEl.innerText = message;
+
+                if (options.type === 'delete') {
+                    okBtn.className = "flex-1 btn bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-500/30 py-4 text-lg font-bold";
+                    okBtn.innerText = "Ya, Hapus";
+                    iconContainer.className = "w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center text-3xl mb-2";
+                    iconContainer.querySelector('i').className = "fas fa-trash-alt animate-bounce";
+                } else {
+                    okBtn.className = "flex-1 btn btn-primary py-4 text-lg font-bold";
+                    okBtn.innerText = "Simpan";
+                    iconContainer.className = "w-20 h-20 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center text-3xl mb-2";
+                    iconContainer.querySelector('i').className = "fas fa-check-circle animate-bounce";
+                }
+
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                setTimeout(() => {
+                    modal.style.opacity = '1';
+                    document.getElementById('confirm-modal-content').style.transform = 'translateY(0)';
+                }, 50);
+
+                const hide = () => {
+                    modal.style.opacity = '0';
+                    document.getElementById('confirm-modal-content').style.transform = 'translateY(1rem)';
+                    setTimeout(() => {
+                        modal.classList.remove('flex');
+                        modal.classList.add('hidden');
+                    }, 300);
+                };
+
+                okBtn.onclick = () => { hide(); resolve(true); };
+                cancelBtn.onclick = () => { hide(); resolve(false); };
+            });
+        };
+
+        /** Data Fetching */
+        async function fetchData() {
+            console.log("Admin Berita: fetchData started");
+            if (!window.fetchFirebaseData) {
+                console.warn("Admin Berita: window.fetchFirebaseData is missing!");
+                return;
+            }
+
+            try {
+                console.log("Admin Berita: Fetching all firebase nodes...");
+                const [news, units, officials, media] = await Promise.all([
+                    window.fetchFirebaseData('newsList'),
+                    window.fetchFirebaseData('unitKerja'),
+                    window.fetchFirebaseData('pejabat'),
+                    window.fetchFirebaseData('mediaList')
+                ]);
+
+                console.log("Admin Berita: Fetch complete, news count:", news ? Object.keys(news).length : 0);
+                
+                allNewsData = news ? Object.entries(news).map(([key, val]) => ({ key, ...val })) : [];
+                allUnitData = units ? Object.entries(units).map(([key, val]) => ({ key, ...val })) : [];
+                allOfficialData = officials ? Object.entries(officials).map(([key, val]) => ({ key, ...val })) : [];
+                allMediaData = media ? Object.entries(media).map(([key, val]) => ({ key, ...val })) : [];
+
+                updateDropdowns();
+                updatePejabatChecklist();
+                updateAdminLists();
+            } catch (err) {
+                console.error("Admin Berita: Error fetching data:", err);
+            }
+        }
+
+        function updateDropdowns() {
+            const mediaSelect = document.getElementById('news-media');
+            const unitSelect = document.getElementById('news-unit');
+
+            if (mediaSelect) {
+                const current = window.lastAddedMedia || mediaSelect.value;
+                mediaSelect.innerHTML = '<option value="">Pilih Media</option>';
+                
+                // Get unique media names from allNewsData (newsList)
+                const newsMedia = allNewsData
+                    .map(n => n.media)
+                    .filter(m => m && m.trim() !== '');
+                
+                // Also get from mediaList
+                const definedMedia = allMediaData.map(m => m.name);
+                
+                // Combine and unique
+                const combined = [...new Set([...newsMedia, ...definedMedia])];
+                
+                combined.sort((a,b) => a.localeCompare(b)).forEach(name => {
+                    mediaSelect.innerHTML += `<option value="${name}">${name}</option>`;
+                });
+                mediaSelect.value = current;
+                window.lastAddedMedia = null;
+            }
+
+            if (unitSelect) {
+                const current = window.lastAddedUnit || unitSelect.value || '';
+                const itemsContainer = document.getElementById('unit-dropdown-items');
+                if (itemsContainer) {
+                    itemsContainer.innerHTML = `
+                        <div class="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm text-slate-700 dark:text-slate-300 transition-colors" onclick="selectUnit('')">
+                            -- Kosongkan Pilihan --
+                        </div>
+                    `;
+                    allUnitData.sort((a,b) => (a.unit || a.nama).localeCompare(b.unit || b.nama)).forEach(u => {
+                        const val = u.unit || u.nama;
+                        itemsContainer.innerHTML += `
+                            <div class="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200 transition-colors" onclick="selectUnit('${val.replace(/'/g, "\\'")}')">
+                                ${val}
+                            </div>
+                        `;
+                    });
+                }
+                if (window.selectUnit) window.selectUnit(current);
+                window.lastAddedUnit = null;
+            }
+        }
+
+        function updatePejabatChecklist() {
+            const container = document.getElementById('pejabat-checklist');
+            if (!container) return;
+            
+            // Collect currently checked
+            const checkedNames = Array.from(document.querySelectorAll('input[name="officials"]:checked')).map(cb => cb.value);
+            if (window.lastAddedPejabat) {
+                checkedNames.push(window.lastAddedPejabat);
+                window.lastAddedPejabat = null;
+            }
+
+            container.innerHTML = '';
+            allOfficialData.sort((a,b) => (a.nama || a.name).localeCompare(b.nama || b.name)).forEach(off => {
+                const label = off.nama || off.name;
+                const isChecked = checkedNames.includes(label);
+                container.innerHTML += `
+                    <label class="flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl cursor-pointer transition-colors group">
+                        <input type="checkbox" name="officials" value="${label}" ${isChecked ? 'checked' : ''} onchange="updatePejabatDisplayText()"
+                            class="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500">
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-blue-600 transition-colors">${label}</span>
+                            <span class="text-[10px] text-slate-400 font-medium uppercase tracking-tight">${off.jabatan || 'Pejabat'}</span>
+                        </div>
+                    </label>
+                `;
+            });
+            updatePejabatDisplayText();
+        }
+
+        window.updatePejabatDisplayText = function() {
+            const selected = Array.from(document.querySelectorAll('input[name="officials"]:checked')).map(cb => cb.value);
+            const display = document.getElementById('pejabat-display-text');
+            if (selected.length === 0) {
+                display.innerText = 'Pilih Pejabat';
+                display.classList.add('text-slate-400');
+            } else if (selected.length === 1) {
+                display.innerText = selected[0];
+                display.classList.remove('text-slate-400');
+            } else {
+                display.innerText = `${selected.length} Pejabat Terpilih`;
+                display.classList.remove('text-slate-400');
+            }
+        };
+
+        /** List Updates */
+        function updateAdminLists() {
+            const newsTableBody = document.getElementById('admin-news-list');
+            if (!newsTableBody) return;
+
+            // Search
+            let filtered = allNewsData.filter(news => {
+                const query = searchQuery.toLowerCase();
+                const officialsStr = Array.isArray(news.pejabat) ? news.pejabat.join(' ') : (news.pejabat || '');
+                return (news.judul || '').toLowerCase().includes(query) ||
+                       (news.media || '').toLowerCase().includes(query) ||
+                       (news.unit || '').toLowerCase().includes(query) ||
+                       (news.potensi || '').toLowerCase().includes(query) ||
+                       (news.tanggal || '').toLowerCase().includes(query) ||
+                       (news.userEmail || '').toLowerCase().includes(query) ||
+                       officialsStr.toLowerCase().includes(query);
+            });
+
+            // Sort
+            filtered.sort((a, b) => {
+                let valA = a[sortField];
+                let valB = b[sortField];
+                
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+
+                if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+                if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // Pagination logic
+            const totalItems = filtered.length;
+            const items = itemsPerPage === 'all' ? totalItems : itemsPerPage;
+            const totalPages = Math.ceil(totalItems / items);
+            
+            if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+            
+            const start = (currentPage - 1) * items;
+            const end = itemsPerPage === 'all' ? totalItems : start + items;
+            const paginated = filtered.slice(start, end);
+
+            // Update UI
+            newsTableBody.innerHTML = paginated.length === 0 
+                ? '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Tidak ada berita ditemukan.</td></tr>' 
+                : paginated.map((news, index) => {
+                    const rowNum = start + index + 1;
+                    const displayPejabat = Array.isArray(news.pejabat) ? news.pejabat.join(', ') : (news.pejabat || '-');
+                    const colorMap = { 'Positif': 'emerald', 'Negatif': 'rose', 'Netral': 'slate' };
+                    const color = colorMap[news.potensi] || 'slate';
+                    const displayUser = news.userEmail ? news.userEmail.replace('@gmail.com', '') : '-';
+
+                    return `
+                        <tr onclick="openViewNewsModal('${news.key}')" class="hover:bg-blue-50 dark:hover:bg-slate-700/60 transition-colors group divide-x divide-slate-200 dark:divide-slate-700/50 cursor-pointer">
+                            <td class="px-2 sm:px-4 py-4 text-center text-slate-500 font-bold text-xs bg-slate-50/10 dark:bg-slate-800/5 align-top whitespace-normal break-words">${rowNum}</td>
+                            <td class="px-2 sm:px-4 py-4 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-400 align-top whitespace-normal break-words">${news.tanggal || '-'}</td>
+                            <td class="px-2 sm:px-4 py-4 align-top whitespace-normal break-words">
+                                <div class="text-sm font-bold text-slate-800 dark:text-white group-hover:text-blue-600 transition-colors min-w-[150px] leading-relaxed">${news.judul || '-'}</div>
+                            </td>
+                            <td class="px-2 sm:px-4 py-4 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 align-top whitespace-normal break-words">${news.media || '-'}</td>
+                            <td class="px-2 sm:px-4 py-4 text-xs font-semibold text-slate-600 dark:text-slate-300 align-top whitespace-normal break-words">${displayPejabat}</td>
+                            <td class="px-2 sm:px-4 py-4 text-xs font-semibold text-slate-600 dark:text-slate-300 align-top whitespace-normal break-words">${news.unit || '-'}</td>
+                            <td class="px-2 sm:px-4 py-4 text-center align-top whitespace-normal break-words">
+                                <span class="badge bg-${color}-100 text-${color}-600 dark:bg-${color}-900/30 dark:text-${color}-400">${news.potensi || 'Netral'}</span>
+                            </td>
+                            <td class="px-2 sm:px-4 py-4 text-xs font-semibold text-slate-500 align-top whitespace-normal break-words break-all" title="${news.userEmail || ''}">${displayUser}</td>
+                            <td class="px-2 sm:px-4 py-4 bg-slate-50/10 dark:bg-slate-800/5 align-top whitespace-normal break-words">
+                                <div class="flex justify-center gap-2 flex-wrap">
+                                    <button onclick="event.stopPropagation(); printNews('${news.key}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 transition-all shadow-sm shrink-0" title="Cetak">
+                                        <i class="fas fa-print text-xs"></i>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); openNewsModal('${news.key}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 transition-all shadow-sm shrink-0" title="Edit">
+                                        <i class="fas fa-edit text-xs"></i>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); deleteNews('${news.key}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-900/30 dark:text-rose-400 transition-all shadow-sm shrink-0" title="Hapus">
+                                        <i class="fas fa-trash-alt text-xs"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+            // Update Pagination Info
+            const paginationInfo = document.getElementById('news-pagination-info');
+            if (paginationInfo) {
+                paginationInfo.innerHTML = paginated.length === 0 
+                    ? 'Menampilkan 0 berita' 
+                    : `Menampilkan <span class="font-bold text-slate-800 dark:text-white">${start+1} - ${Math.min(end, totalItems)}</span> dari <span class="font-bold text-slate-800 dark:text-white">${totalItems}</span> berita`;
+            }
+
+            updatePaginationButtons(totalPages);
+        }
+
+        /** Actions */
+        window.openNewsModal = function(key = null) {
+            activeNewsKey = key;
+            const form = document.getElementById('form-news');
+            form.reset();
+            document.getElementById('news-modal-title').innerText = key ? 'Edit Berita' : 'Tambah Berita';
+            document.getElementById('news-tanggal-input').value = '';
+            
+            if (window.selectUnit) {
+                window.selectUnit('');
+            } else {
+                if (document.getElementById('news-unit')) {
+                    document.getElementById('news-unit').value = '';
+                }
+            }
+
+            if (key) {
+                const data = allNewsData.find(n => n.key === key);
+                if (data) {
+                    document.getElementById('news-judul').value = data.judul || '';
+                    document.getElementById('news-media').value = data.media || '';
+                    document.getElementById('news-potensi').value = data.potensi || '';
+                    
+                    if (window.selectUnit) {
+                        window.selectUnit(data.unit || '');
+                    } else {
+                        document.getElementById('news-unit').value = data.unit || '';
+                    }
+
+                    document.getElementById('news-isi').value = data.isi || '';
+                    if (data.tanggal_raw) {
+                        const d = new Date(data.tanggal_raw);
+                        document.getElementById('news-tanggal-input').value = d.toISOString().split('T')[0];
+                    }
+                    const officials = Array.isArray(data.pejabat) ? data.pejabat : [data.pejabat || ''];
+                    document.querySelectorAll('input[name="officials"]').forEach(cb => {
+                        cb.checked = officials.includes(cb.value);
+                    });
+                    updatePejabatDisplayText();
+                }
+            } else {
+                document.querySelectorAll('input[name="officials"]').forEach(cb => cb.checked = false);
+                updatePejabatDisplayText();
+            }
+            
+            document.getElementById('modal-news').classList.remove('hidden');
+            document.getElementById('modal-news').classList.add('flex');
+            document.body.classList.add('overflow-hidden');
+        };
+
+        window.closeNewsModal = function() {
+            document.getElementById('modal-news').classList.add('hidden');
+            document.getElementById('modal-news').classList.remove('flex');
+            document.body.classList.remove('overflow-hidden');
+        };
+
+        window.saveNews = async function(e) {
+            e.preventDefault();
+            const confirmed = await window.customConfirm("Simpan Berita", "Apakah Anda yakin ingin menyimpan perubahan berita ini?", { type: 'info' });
+            if (!confirmed) return;
+
+            const selectedOfficials = Array.from(document.querySelectorAll('input[name="officials"]:checked')).map(cb => cb.value);
+            if (selectedOfficials.length === 0) {
+                alert("Harap pilih setidaknya satu pejabat.");
+                return;
+            }
+
+            const key = activeNewsKey || Date.now().toString();
+            const dateVal = document.getElementById('news-tanggal-input').value;
+            const dateObj = new Date(dateVal);
+            
+            const data = {
+                judul: document.getElementById('news-judul').value,
+                media: document.getElementById('news-media').value,
+                pejabat: selectedOfficials,
+                unit: document.getElementById('news-unit').value,
+                potensi: document.getElementById('news-potensi').value,
+                isi: document.getElementById('news-isi').value,
+                tanggal: dateObj.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+                tanggal_raw: dateObj.getTime(),
+                userEmail: window.currentUser ? (window.currentUser.email || '') : ''
+            };
+
+            showLoading("Menyimpan Berita...");
+            try {
+                const updateData = {};
+                updateData[key] = data;
+                await window.updateFirebaseData('newsList', updateData);
+                closeNewsModal();
+                await fetchData();
+                hideLoading(true);
+            } catch (err) { 
+                hideLoading();
+                alert(err.message); 
+            }
+        };
+
+        window.deleteNews = async function(key) {
+            const confirmed = await window.customConfirm("Hapus Berita", "Apakah Anda yakin ingin menghapus berita ini secara permanen?", { type: 'delete' });
+            if (!confirmed) return;
+
+            showLoading("Menghapus Berita...");
+            try {
+                await window.deleteFirebaseData('newsList', key);
+                await fetchData();
+                hideLoading(true);
+            } catch (err) {
+                hideLoading();
+                alert(err.message);
+            }
+        };
+
+        window.printNews = async function(key) {
+            const confirmed = await window.customConfirm("Cetak Berita", "Apakah Anda ingin mencetak rincian berita ini?", { type: 'info' });
+            if (!confirmed) return;
+            
+            showLoading("Menyiapkan Cetakan...");
+            try {
+                const news = allNewsData.find(n => n.key === key);
+                if (!news) throw new Error("Berita tidak ditemukan.");
+
+                // Create a temporary print window
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) {
+                    throw new Error("Popup blocker aktif. Harap izinkan popup untuk mencetak.");
+                }
+
+                const displayPejabat = Array.isArray(news.pejabat) ? news.pejabat.join(', ') : (news.pejabat || '-');
+                const displayUnit = news.unit || news.unitkerja || '-';
+                const fullDateStr = formatDate(news.tanggal_raw);
+                
+                printWindow.document.write(`
+                    <html>
+                        <head>
+                            <title>&nbsp;</title>
+                            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                            <style>
+                                @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;800&family=Inter:wght@400;500;600&display=swap');
+                                body { font-family: 'Inter', sans-serif; padding: 20px 40px; line-height: 1.6; color: #0f172a; max-width: 900px; margin: 0 auto; }
+                                .top-header { text-align: center; font-size: 26px; font-weight: 800; font-family: 'Montserrat', sans-serif; margin-bottom: 12px; color: #000; }
+                                hr.thick { border: none; border-bottom: 3px solid #0f172a; margin-bottom: 25px; }
+                                .title { font-size: 22px; font-weight: 800; font-family: 'Montserrat', sans-serif; color: #000; margin-bottom: 12px; line-height: 1.4; text-transform: none; }
+                                .meta-row { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; color: #334155; margin-bottom: 25px; flex-wrap: wrap; }
+                                .meta-row i { color: #000; font-size: 14px; margin-right: 2px; }
+                                .meta-divider { color: #cbd5e1; margin: 0 4px; font-weight: 400; }
+                                .content { white-space: pre-wrap; font-size: 14px; text-align: justify; line-height: 1.8; color: #1e293b; }
+                                @page { size: A4; margin: 20mm; }
+                                @media print { body { padding: 0; } }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="top-header">Rekapan KataKita</div>
+                            <hr class="thick" />
+                            <div class="title">${news.judul}</div>
+                            <div class="meta-row">
+                                <i class="fas fa-calendar"></i> ${fullDateStr}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-desktop"></i> ${news.media}
+                                <span class="meta-divider">|</span>
+                                <i class="fas fa-user"></i> ${displayPejabat}
+                                <span class="meta-divider">|</span>
+                                Potensi: ${news.potensi || 'Netral'}
+                            </div>
+                            <div class="content">
+${news.isi}
+                            </div>
+                            <script>
+                                window.onload = function() {
+                                    setTimeout(() => {
+                                        window.print();
+                                    }, 800);
+                                };
+                            <\/script>
+                        </body>
+                    </html>
+                `);
+                printWindow.document.close();
+                hideLoading(true);
+            } catch (err) {
+                hideLoading();
+                alert(err.message);
+            }
+        };
+
+        /** Quick Adds */
+        window.toggleQuickAdd = function(type) {
+            const id = `quick-add-${type}`;
+            const el = document.getElementById(id);
+            const wasHidden = el.classList.contains('hidden');
+            
+            // Close all panels
+            ['media', 'pejabat', 'unit'].forEach(t => {
+                const panel = document.getElementById(`quick-add-${t}`);
+                if (panel) panel.classList.add('hidden');
+            });
+            
+            // Also close officials list
+            const list = document.getElementById('pejabat-dropdown-list');
+            if (list) list.classList.add('hidden');
+
+            if (wasHidden) {
+                el.classList.remove('hidden');
+            }
+        };
+
+        window.togglePejabatDropdown = function() {
+            const list = document.getElementById('pejabat-dropdown-list');
+            const wasHidden = list.classList.contains('hidden');
+            
+            // Close quick add panels
+            ['media', 'pejabat', 'unit'].forEach(t => {
+                const panel = document.getElementById(`quick-add-${t}`);
+                if (panel) panel.classList.add('hidden');
+            });
+            
+            // Close unit list
+            const unitList = document.getElementById('unit-dropdown-list');
+            if (unitList) unitList.classList.add('hidden');
+
+            if (wasHidden) {
+                list.classList.remove('hidden');
+                setTimeout(() => {
+                    const searchInput = document.getElementById('pejabat-modal-search');
+                    if (searchInput) {
+                        searchInput.value = '';
+                        searchInput.focus();
+                        if (window.filterPejabatModalList) window.filterPejabatModalList();
+                    }
+                }, 100);
+            } else {
+                list.classList.add('hidden');
+            }
+        };
+
+        window.toggleUnitDropdown = function() {
+            const list = document.getElementById('unit-dropdown-list');
+            const wasHidden = list.classList.contains('hidden');
+            
+            ['media', 'pejabat', 'unit'].forEach(t => {
+                const panel = document.getElementById(`quick-add-${t}`);
+                if (panel) panel.classList.add('hidden');
+            });
+            
+            const pejabatList = document.getElementById('pejabat-dropdown-list');
+            if (pejabatList) pejabatList.classList.add('hidden');
+
+            if (wasHidden) {
+                list.classList.remove('hidden');
+                setTimeout(() => {
+                    const searchInput = document.getElementById('unit-modal-search');
+                    if (searchInput) {
+                        searchInput.value = '';
+                        searchInput.focus();
+                        if (window.filterUnitModalList) window.filterUnitModalList();
+                    }
+                }, 100);
+            } else {
+                list.classList.add('hidden');
+            }
+        };
+
+        window.selectUnit = function(val) {
+            document.getElementById('news-unit').value = val;
+            const display = document.getElementById('unit-display-text');
+            if (val) {
+                display.innerText = val;
+                display.classList.remove('text-slate-400');
+            } else {
+                display.innerText = 'Pilih Unit Kerja';
+                display.classList.add('text-slate-400');
+            }
+            const list = document.getElementById('unit-dropdown-list');
+            if (list) list.classList.add('hidden');
+        };
+
+        window.filterPejabatModalList = function() {
+            const input = document.getElementById('pejabat-modal-search');
+            const filter = input.value.toLowerCase();
+            const items = document.querySelectorAll('#pejabat-checklist label');
+            
+            items.forEach(item => {
+                const text = item.innerText.toLowerCase();
+                if (text.includes(filter)) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        };
+
+        window.filterUnitModalList = function() {
+            const input = document.getElementById('unit-modal-search');
+            const filter = input.value.toLowerCase();
+            const items = document.querySelectorAll('#unit-dropdown-items div');
+            
+            items.forEach(item => {
+                const text = item.innerText.toLowerCase();
+                if (text.includes(filter)) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        };
+
+        // Close popups on outside click
+        document.addEventListener('mousedown', function(e) {
+            // Officials dropdown
+            const list = document.getElementById('pejabat-dropdown-list');
+            const btn = document.querySelector('button[onclick="togglePejabatDropdown()"]');
+            if (list && !list.classList.contains('hidden') && !list.contains(e.target) && btn && !btn.contains(e.target)) {
+                list.classList.add('hidden');
+            }
+            
+            // Unit dropdown
+            const unitList = document.getElementById('unit-dropdown-list');
+            const unitBtn = document.querySelector('button[onclick="toggleUnitDropdown()"]');
+            if (unitList && !unitList.classList.contains('hidden') && !unitList.contains(e.target) && unitBtn && !unitBtn.contains(e.target)) {
+                unitList.classList.add('hidden');
+            }
+            
+            // Quick Adds
+            ['media', 'pejabat', 'unit'].forEach(t => {
+                const panel = document.getElementById(`quick-add-${t}`);
+                if (panel && !panel.classList.contains('hidden') && !panel.contains(e.target)) {
+                    // Check if click was on the toggle button
+                    const btn = document.querySelector(`button[onclick*="toggleQuickAdd('${t}')"]`);
+                    if (btn && !btn.contains(e.target)) {
+                        panel.classList.add('hidden');
+                    }
+                }
+            });
+        });
+
+        window.quickAddMedia = async function() {
+            const input = document.getElementById('new-media-name');
+            const name = input.value.trim();
+            if (!name) return;
+
+            const confirmed = await window.customConfirm("Tambah Media", `Yakin ingin menambahkan media "${name}"?`, { type: 'info' });
+            if (!confirmed) return;
+
+            showLoading("Menambahkan Media...");
+            try {
+                const key = Date.now().toString();
+                const updateData = {};
+                updateData[key] = { name };
+                await window.updateFirebaseData('mediaList', updateData);
+                
+                window.lastAddedMedia = name;
+                
+                await fetchData();
+                input.value = '';
+                toggleQuickAdd('media');
+                hideLoading(true);
+            } catch (err) {
+                hideLoading();
+                alert(err.message);
+            }
+        };
+
+        window.quickAddUnit = async function() {
+            const input = document.getElementById('new-unit-name');
+            const name = input.value.trim();
+            if (!name) return;
+
+            const confirmed = await window.customConfirm("Tambah Unit", `Yakin ingin menambahkan unit "${name}"?`, { type: 'info' });
+            if (!confirmed) return;
+
+            showLoading("Menambahkan Unit...");
+            try {
+                const key = Date.now().toString();
+                const updateData = {};
+                updateData[key] = { unit: name };
+                await window.updateFirebaseData('unitKerja', updateData);
+                
+                window.lastAddedUnit = name;
+                
+                await fetchData();
+                input.value = '';
+                toggleQuickAdd('unit');
+                hideLoading(true);
+            } catch (err) {
+                hideLoading();
+                alert(err.message);
+            }
+        };
+
+        window.quickAddPejabat = async function() {
+            const nameIn = document.getElementById('new-pejabat-name');
+            const jabIn = document.getElementById('new-pejabat-jabatan');
+            const name = nameIn.value.trim();
+            const jab = jabIn.value.trim();
+            if (!name) return;
+
+            const confirmed = await window.customConfirm("Tambah Pejabat", `Yakin ingin menambahkan pejabat "${name}"?`, { type: 'info' });
+            if (!confirmed) return;
+
+            showLoading("Menambahkan Pejabat...");
+            try {
+                const key = Date.now().toString();
+                const updateData = {};
+                updateData[key] = { nama: name, jabatan: jab };
+                await window.updateFirebaseData('pejabat', updateData);
+                
+                window.lastAddedPejabat = name;
+                
+                await fetchData();
+                nameIn.value = '';
+                jabIn.value = '';
+                toggleQuickAdd('pejabat');
+                hideLoading(true);
+            } catch (err) {
+                hideLoading();
+                alert(err.message);
+            }
+        };
+
+        window.setNewsSort = function(field) {
+            if (sortField === field) {
+                sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortField = field;
+                sortOrder = 'asc';
+            }
+            updateAdminLists();
+        };
+
+        // --- Helper Functions ---
+        function parseDate(dateVal) {
+            if (!dateVal) return new Date(0);
+            const d = new Date(dateVal);
+            return isNaN(d.getTime()) ? new Date(0) : d;
+        }
+
+        function formatDate(dateVal) {
+            const date = parseDate(dateVal);
+            if (date.getTime() === 0) return "-";
+            const options = { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' };
+            try {
+                let formatted = date.toLocaleDateString('id-ID', options);
+                return formatted.replace(/\w\S*/g, (w) => (w.replace(/^\w/, (c) => c.toUpperCase())));
+            } catch (e) {
+                return "-";
+            }
+        }
+
+        function updatePaginationButtons(totalPages) {
+            const container = document.getElementById('news-pagination-buttons');
+            if (!container) return;
+            container.innerHTML = '';
+            if (totalPages <= 1) return;
+
+            if (currentPage >= 4) {
+                container.appendChild(createPageButton(1, '<i class="fas fa-angles-left"></i>'));
+            }
+
+            let pages = [];
+            const range = 1;
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - range && i <= currentPage + range)) {
+                    pages.push(i);
+                } else if (pages[pages.length - 1] !== '...') {
+                    pages.push('...');
+                }
+            }
+
+            pages.forEach(p => {
+                if (p === '...') {
+                    const dots = document.createElement('span');
+                    dots.className = 'px-2 text-slate-400';
+                    dots.innerText = '...';
+                    container.appendChild(dots);
+                } else {
+                    container.appendChild(createPageButton(p, p));
+                }
+            });
+
+            if (currentPage < totalPages) {
+                container.appendChild(createPageButton(totalPages, '<i class="fas fa-angles-right"></i>'));
+            }
+        }
+
+        function createPageButton(page, label) {
+            const btn = document.createElement('button');
+            btn.className = `w-10 h-10 flex items-center justify-center rounded-xl font-bold text-sm transition-all ${currentPage === page ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ring-1 ring-slate-200 dark:ring-slate-700'}`;
+            btn.innerHTML = label;
+            btn.onclick = () => {
+                currentPage = page;
+                updateAdminLists();
+            };
+            return btn;
+        }
+
+        // Initialize Listeners
+        window.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('news-search');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchQuery = e.target.value;
+                    currentPage = 1;
+                    updateAdminLists();
+                });
+            }
+
+            const perPageSelect = document.getElementById('news-per-page');
+            if (perPageSelect) {
+                perPageSelect.addEventListener('change', (e) => {
+                    itemsPerPage = e.target.value === 'all' ? 'all' : parseInt(e.target.value);
+                    currentPage = 1;
+                    updateAdminLists();
+                });
+            }
+
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                const container = document.getElementById('pejabat-dropdown-container');
+                const list = document.getElementById('pejabat-dropdown-list');
+                if (container && !container.contains(e.target)) {
+                    list.classList.add('hidden');
+                }
+            });
+            
+            // Theme toggle
+            const themeBtn = document.getElementById('theme-toggle');
+            if (themeBtn) {
+                themeBtn.onclick = () => {
+                    const isDark = document.documentElement.classList.toggle('dark');
+                    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+                };
+            }
+
+            // Mobile toggle
+            window.toggleSidebar = function() {
+                const sidebar = document.getElementById('admin-sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                if(sidebar) sidebar.classList.toggle('-translate-x-full');
+                if(overlay) overlay.classList.toggle('hidden');
+            };
+            
+            const mobileToggle = document.getElementById('mobile-sidebar-toggle');
+            if (mobileToggle) {
+                mobileToggle.addEventListener('click', toggleSidebar);
+            }
+            const overlayElement = document.getElementById('sidebar-overlay');
+            if (overlayElement) {
+                overlayElement.addEventListener('click', toggleSidebar);
+            }
+        });
+
+        window.addEventListener('firebaseReady', () => {
+            console.log("Firebase ready event received");
+            fetchData();
+        });
+        
+        // Immediate check if firebase is already initialized
+        if (window.firebaseIsReady) {
+            console.log("Firebase already ready on script load, fetching news...");
+            fetchData();
+        } else {
+            console.log("Waiting for firebaseReady event...");
+        }
+    </script>
+    <script type="module" src="/src/auth.ts"></script>
+</body>
+</html>
